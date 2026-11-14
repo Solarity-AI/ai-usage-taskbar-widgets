@@ -1,0 +1,4 @@
+# Installer transcripts and local run output
+install-last.log
+*.log
+*.tmp

@@ -1,0 +1,4 @@
+# Keep scripts byte-for-byte (UTF-8 with BOM, line endings as committed): Windows PowerShell 5.1 needs the BOM,
+# and tools\sync.ps1 -Check compares generated files exactly.
+*.ps1 -text
+*.png binary
