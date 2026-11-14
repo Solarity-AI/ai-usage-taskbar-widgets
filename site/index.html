@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI usage taskbar widgets: Claude and Codex limits on your Windows taskbar</title>
+<meta name="description" content="Two free Windows taskbar widgets that show how much of your weekly Claude and Codex allowance is left, and when it runs out at your pace. Local, private, no sign-up.">
+<meta name="theme-color" content="#0f1217" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="canonical" href="https://solarity-ai.github.io/ai-usage-taskbar-widgets/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Solarity AI">
+<meta property="og:title" content="AI usage taskbar widgets">
+<meta property="og:description" content="See how much of your weekly Claude and Codex allowance is left, and when it runs out at your pace, right on the Windows taskbar.">
+<meta property="og:url" content="https://solarity-ai.github.io/ai-usage-taskbar-widgets/">
+<meta property="og:image" content="https://solarity-ai.github.io/ai-usage-taskbar-widgets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The Claude and Codex usage cards and taskbar pills">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+:root{--bg:#0f1217;--surface:#161a21;--card:#1d2129;--line:#2a2f39;--text:#f2f5fa;--dim:#a4aab2;--mute:#7d838c;--teal:#5eebd2;--teal-a:#3ccd9c;--teal-b:#28cfe4;--orange:#fcba75;--red:#f58a88;--code:#12151b;--btn:#f2f5fa;--btn-text:#0f1217;color-scheme:dark}
+@media (prefers-color-scheme:light){:root{--bg:#f6f7f9;--surface:#ffffff;--card:#ffffff;--line:#e2e5ea;--text:#1b1f27;--dim:#545b66;--mute:#6b727c;--teal:#0b8a7d;--teal-a:#23b98a;--teal-b:#10a9c6;--orange:#c9620a;--red:#cc2f35;--code:#f1f3f6;--btn:#1b1f27;--btn-text:#ffffff;color-scheme:light}}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--teal);text-underline-offset:3px}
+img{max-width:100%;height:auto;display:block}
+.wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+.skip{position:absolute;left:-9999px}.skip:focus{left:16px;top:12px;background:var(--btn);color:var(--btn-text);padding:8px 12px;border-radius:8px;z-index:10}
+header{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+header .wrap{display:flex;align-items:center;gap:16px;height:60px}
+.brand{display:flex;align-items:center;gap:10px;color:var(--text);text-decoration:none;font-weight:600}
+.brand img{width:28px;height:28px}
+nav{margin-left:auto;display:flex;gap:22px;font-size:15px}
+nav a{color:var(--dim);text-decoration:none}nav a:hover{color:var(--text)}
+@media (max-width:640px){nav a.opt{display:none}.steps li{padding:18px 16px 18px 56px}.steps li::before{left:14px}th,td{padding:11px 10px}}
+.hero{padding:72px 0 40px;text-align:center}
+.eyebrow{display:inline-block;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:4px 12px;margin-bottom:22px}
+h1{font-family:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;font-size:clamp(34px,5.4vw,58px);line-height:1.08;letter-spacing:-.02em;margin:0 auto 18px;max-width:880px;font-weight:650}
+h1 .grad{background:linear-gradient(90deg,var(--teal-a),var(--teal-b));-webkit-background-clip:text;background-clip:text;color:transparent}
+.lead{font-size:clamp(17px,2vw,20px);color:var(--dim);max-width:700px;margin:0 auto 30px}
+.cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:10px;padding:13px 22px;border-radius:10px;font-weight:600;text-decoration:none;font-size:16px;border:1px solid var(--line)}
+.btn.primary{background:var(--btn);color:var(--btn-text);border-color:var(--btn)}
+.btn.ghost{color:var(--text);background:var(--surface)}
+.btn:hover{filter:brightness(1.08)}
+.btn svg{width:18px;height:18px}
+.fine{margin-top:14px;font-size:14px;color:var(--mute)}
+.stage{margin:46px auto 0;max-width:980px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:28px 24px 0;overflow:hidden}
+.cards{display:flex;gap:10px;justify-content:center;align-items:flex-end;flex-wrap:wrap}
+.cards img{width:min(420px,100%)}
+.taskbar{margin:18px -24px 0;background:#132445;border-top:1px solid #23355a;display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:6px 18px;flex-wrap:wrap}
+.taskbar img{height:52px;width:auto}
+.taskbar .clock{color:#e6ecf5;font-size:13px;line-height:1.25;text-align:right;margin-left:10px}
+section{padding:72px 0}
+h2{font-family:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;font-size:clamp(26px,3.2vw,36px);letter-spacing:-.01em;margin:0 0 12px;font-weight:650}
+.sub{color:var(--dim);max-width:680px;margin:0 0 34px;font-size:17px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px}
+.feature{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px}
+.feature h3{margin:12px 0 6px;font-size:18px}
+.feature p{margin:0;color:var(--dim);font-size:15.5px}
+.icon{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;background:color-mix(in srgb,var(--teal) 14%,transparent);color:var(--teal)}
+.icon svg{width:20px;height:20px}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center}
+@media (max-width:860px){.split{grid-template-columns:1fr}}
+.pace{list-style:none;padding:0;margin:20px 0 0;display:grid;gap:12px}
+.pace li{display:flex;gap:12px;align-items:flex-start;color:var(--dim)}
+.dot{flex:none;width:12px;height:12px;border-radius:50%;margin-top:7px}
+.pace b{color:var(--text)}
+.shots{display:flex;gap:16px;flex-wrap:wrap;justify-content:center}
+.shots figure{margin:0;flex:1 1 300px;max-width:420px}
+.shots figcaption{text-align:center;color:var(--mute);font-size:14px;margin-top:6px}
+.steps{counter-reset:s;display:grid;grid-template-columns:minmax(0,1fr);gap:16px;padding:0;margin:0;list-style:none}
+.steps li{counter-increment:s;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px 20px 20px 64px;position:relative}
+.steps li::before{content:counter(s);position:absolute;left:20px;top:18px;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:700;background:linear-gradient(90deg,var(--teal-a),var(--teal-b));color:#0f1217}
+.steps h3{margin:0 0 6px;font-size:17px}
+.steps p{margin:0 0 10px;color:var(--dim)}
+.code{display:flex;align-items:center;gap:10px;background:var(--code);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:8px}
+.code code{flex:1;min-width:0;font:14px/1.5 "Cascadia Code",Consolas,ui-monospace,monospace;overflow-x:auto;white-space:nowrap}
+.copy{flex:none;font:600 13px/1 inherit;font-family:inherit;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer}
+.copy:hover{border-color:var(--dim)}
+table{width:100%;border-collapse:collapse;font-size:15px;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+th,td{text-align:left;padding:13px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--dim);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+tr:last-child td{border-bottom:0}
+td code{font-size:13.5px;font-family:"Cascadia Code",Consolas,monospace;word-break:break-word}
+.tablewrap{overflow-x:auto;border-radius:14px}
+.checks{list-style:none;padding:0;margin:26px 0 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:10px 24px}
+.checks li{padding-left:28px;position:relative;color:var(--dim)}
+.checks li::before{content:"";position:absolute;left:2px;top:8px;width:12px;height:7px;border-left:2px solid var(--teal);border-bottom:2px solid var(--teal);transform:rotate(-45deg)}
+details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:0 18px;margin-bottom:10px}
+summary{cursor:pointer;padding:16px 0;font-weight:600;list-style:none;display:flex;justify-content:space-between;gap:12px}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";color:var(--dim);font-weight:400;font-size:20px;line-height:1}
+details[open] summary::after{content:"\2212"}
+details p{margin:0 0 16px;color:var(--dim)}
+.band{background:var(--surface);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.final{text-align:center}
+footer{padding:34px 0 48px;color:var(--mute);font-size:14px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:10px 24px;justify-content:space-between}
+footer a{color:var(--dim)}
+:focus-visible{outline:2px solid var(--teal);outline-offset:3px;border-radius:6px}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header>
+  <div class="wrap">
+    <a class="brand" href="./"><img src="favicon.svg" alt="" width="28" height="28">AI usage taskbar widgets</a>
+    <nav aria-label="Main">
+      <a class="opt" href="#features">Features</a>
+      <a class="opt" href="#install">Install</a>
+      <a class="opt" href="#privacy">Privacy</a>
+      <a href="https://github.com/Solarity-AI/ai-usage-taskbar-widgets">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<div class="wrap hero">
+  <span class="eyebrow">Free · Windows 10 and 11 · Claude and Codex</span>
+  <h1>Your <span class="grad">Claude and Codex limits</span>, always on the taskbar</h1>
+  <p class="lead">Two small widgets show how much of your weekly allowance is left, whether you are on pace, and the exact time it runs out at your current speed. They run on your PC only: no server, no telemetry, no sign-up.</p>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest/download/ai-usage-taskbar-widgets.zip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 21h16"/></svg>Download for Windows</a>
+    <a class="btn ghost" href="#install">How to install</a>
+  </div>
+  <p class="fine"><a href="https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest">Latest release</a> · works with Claude Pro, Max, Team and Enterprise, and ChatGPT plans with Codex</p>
+
+  <div class="stage" aria-label="The Codex and Claude cards above their taskbar pills">
+    <div class="cards">
+      <img src="images/codex-card.png" width="700" height="731" alt="Codex usage card: 10% left this week, 62,500 credits left, a red pace box saying Too fast with the run-out time, and the weekly limit bar at 90% used">
+      <img src="images/claude-card.png" width="700" height="814" alt="Claude usage card: 55% left this week for all models, a teal pace box saying On pace with when it would run out, and bars for the weekly and 5-hour session limits">
+    </div>
+    <div class="taskbar">
+      <img src="images/codex-pill.png" alt="Codex pill: ring at 10% with an orange edge, codex · 5d 1h until the reset" width="270" height="110">
+      <img src="images/claude-pill.png" alt="Claude pill: ring at 55%, claude · 23h 1m until the reset" width="302" height="110">
+      <span class="clock" aria-hidden="true">19:58<br>13-Nov-26</span>
+    </div>
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Everything you need to pace your week</h2>
+    <p class="sub">Glance at the pill, hover for the card, right-click for settings. Each widget works on its own; install one or both.</p>
+    <div class="grid">
+      <div class="feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 8 8"/></svg></div><h3>Weekly allowance at a glance</h3><p>A ring shows the share left, next to the time until the weekly reset. The edge turns orange or red when you are running low.</p></div>
+      <div class="feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 18l6-6 4 4 6-8"/></svg></div><h3>Pace forecast with a finish time</h3><p>Your recent speed predicts when the allowance runs out: before the reset is <em>Too fast</em>, just after is <em>Cutting close</em>, later is <em>On pace</em>.</p></div>
+      <div class="feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h10M4 17h13"/></svg></div><h3>Every limit, one card</h3><p>Weekly, the 5-hour session and per-model limits, each with its bar and reset time. Credits and extra usage show too when your plan has them.</p></div>
+      <div class="feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4l2-2zM10 21h4"/></svg></div><h3>Alerts you can snooze</h3><p>Windows notifications fire at 25% and 10% left, at the limit, and when you are on track to run out early. Snooze them for an hour, until morning or until the reset.</p></div>
+      <div class="feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></div><h3>Private by design</h3><p>Your sign-in is read only on your PC and sent only to the vendor's own usage endpoint. Nothing is logged, cached or shared.</p></div>
+      <div class="feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div><h3>Feels native on Windows 11</h3><p>Light and dark themes, per-monitor DPI, every taskbar on multiple monitors, and the pills hide while a full-screen app is in front.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap split">
+    <div>
+      <h2>Know when you'll run out, not just how much is left</h2>
+      <p class="sub">The pace box compares your use with an even spread over the week. A marker shows how much of the week has gone, and the line underneath gives the time you will hit the limit at your current speed.</p>
+      <ul class="pace">
+        <li><span class="dot" style="background:var(--teal)"></span><span><b>On pace:</b> at this speed the allowance lasts past the reset.</span></li>
+        <li><span class="dot" style="background:#f2c97d"></span><span><b>Cutting close:</b> it lasts, but with under 5% to spare.</span></li>
+        <li><span class="dot" style="background:var(--red)"></span><span><b>Too fast:</b> it runs out before the reset. The card says exactly when, and an alert warns you once.</span></li>
+      </ul>
+    </div>
+    <img src="images/claude-details-card.png" width="700" height="1498" alt="Claude card with details turned on: a burn-up chart of the week against even pace with a forecast line, and a full pace breakdown with today's budget and recent speed" loading="lazy">
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Light or dark, it follows Windows</h2>
+    <p class="sub">Right-click a pill for everything else: refresh, sign in again, snooze, alert thresholds, what the pill shows, refresh interval, compact mode, details, start with Windows and uninstall.</p>
+    <div class="shots">
+      <figure><img src="images/claude-light-card.png" width="700" height="814" alt="The Claude card in the light theme" loading="lazy"><figcaption>Light theme</figcaption></figure>
+      <figure><img src="images/claude-menu.png" width="643" height="1125" alt="The right-click menu with refresh, sign in again, snooze alerts, alerts, pill shows, refresh every, compact pill, show details, every taskbar, start with Windows and uninstall" loading="lazy"><figcaption>Right-click menu</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section id="install" class="band">
+  <div class="wrap">
+    <h2>Install in a minute</h2>
+    <p class="sub">You need Windows 10 or 11 and its built-in Windows PowerShell 5.1. There is nothing else to install and no admin rights are needed. Sign in to Claude Code (for the Claude widget) or the Codex app or CLI (for the Codex widget) on the same PC first.</p>
+    <ol class="steps">
+      <li><h3>Download and unzip</h3><p>Get <a href="https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest/download/ai-usage-taskbar-widgets.zip">ai-usage-taskbar-widgets.zip</a> from the latest release and unzip it anywhere, for example to your Downloads folder.</p></li>
+      <li><h3>Run the installer for each widget you want</h3><p>Open the unzipped folder, right-click an empty spot and choose <b>Open in Terminal</b>, then paste:</p>
+        <div class="code"><code id="c1">powershell -NoProfile -ExecutionPolicy Bypass -File .\claude-usage-widget\install.ps1</code><button class="copy" type="button" data-copy="c1">Copy</button></div>
+        <div class="code"><code id="c2">powershell -NoProfile -ExecutionPolicy Bypass -File .\codex-usage-widget\install.ps1</code><button class="copy" type="button" data-copy="c2">Copy</button></div>
+      </li>
+      <li><h3>Done</h3><p>The pill appears on the taskbar right away and starts with Windows from now on. Running the installer again updates the widget and keeps your settings. To remove it, right-click the pill and choose <b>Uninstall…</b>.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section id="privacy">
+  <div class="wrap">
+    <h2>What it reads, and where it goes</h2>
+    <p class="sub">A small collector runs in a hidden PowerShell process every one to two minutes. This is all it touches.</p>
+    <div class="tablewrap">
+    <table>
+      <thead><tr><th scope="col"></th><th scope="col">Claude widget</th><th scope="col">Codex widget</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Sign-in it reads</th><td><code>%USERPROFILE%\.claude\.credentials.json</code></td><td><code>%USERPROFILE%\.codex\auth.json</code></td></tr>
+        <tr><th scope="row">Only server it calls</th><td><code>api.anthropic.com</code> usage endpoint</td><td><code>chatgpt.com</code> usage endpoint</td></tr>
+        <tr><th scope="row">Backup source</th><td>Claude Code's own <code>/usage</code> command</td><td>The Codex CLI</td></tr>
+        <tr><th scope="row">Stored on your PC</th><td colspan="2">Settings, 15 days of usage readings for the pace forecast, which alerts were shown, and a short log, in <code>%LOCALAPPDATA%</code></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <ul class="checks">
+      <li>Tokens are never logged, cached, or passed on a command line</li>
+      <li>It never signs in or edits your credentials; renewal goes through the official CLIs</li>
+      <li>No telemetry, no analytics, no account</li>
+      <li>Rate limits back off on their own, from 2 up to 30 minutes</li>
+    </ul>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap">
+    <h2>Questions</h2>
+    <details><summary><span>Does checking usage use up my allowance?</span></summary><p>No. The widgets read the same usage numbers the Claude and Codex apps show. The Claude backup source runs Claude Code's local <code>/usage</code> command, which sends no AI request.</p></details>
+    <details><summary><span>Is this an official Anthropic or OpenAI tool?</span></summary><p>No. It is made by Solarity AI and isn't affiliated with Anthropic or OpenAI. The usage endpoints it reads are the ones the official apps use; they aren't public APIs and may change. If one does, the widget says so instead of showing wrong numbers.</p></details>
+    <details><summary><span>Why does the installer use <code>-ExecutionPolicy&nbsp;Bypass</code>?</span></summary><p>Windows blocks unsigned scripts by default. The flag applies to that one command only; it changes no system setting and needs no admin rights.</p></details>
+    <details><summary><span>How accurate is the run-out time?</span></summary><p>It is an estimate from readings taken on your PC. It uses your speed over the last few hours, or the week's average early on, so it moves as your use changes. It isn't an official forecast.</p></details>
+    <details><summary><span>The pill says "sign in needed" or "not up to date"</span></summary><p>For sign-in, right-click the pill and choose <b>Sign in again</b>; the widget refreshes when the sign-in window closes. "Not up to date" means the usage service is rate limiting; the widget retries by itself, or choose <b>Refresh now</b>.</p></details>
+  </div>
+</section>
+
+<section class="final">
+  <div class="wrap">
+    <h2>Stop guessing how much you have left</h2>
+    <p class="sub" style="margin-left:auto;margin-right:auto">Free for Windows 10 and 11. Install one widget or both in a minute.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest/download/ai-usage-taskbar-widgets.zip">Download for Windows</a>
+      <a class="btn ghost" href="https://github.com/Solarity-AI/ai-usage-taskbar-widgets">View on GitHub</a>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 <a href="https://solarityai.com">Solarity AI</a>. All rights reserved.</span>
+    <span>Not affiliated with Anthropic or OpenAI. Claude and Codex are trademarks of their owners.</span>
+  </div>
+</footer>
+<script>
+document.querySelectorAll('.copy').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var t = document.getElementById(b.dataset.copy).textContent;
+    var done = function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1600); };
+    if (navigator.clipboard) { navigator.clipboard.writeText(t).then(done, function () {}); }
+  });
+});
+</script>
+</body>
+</html>

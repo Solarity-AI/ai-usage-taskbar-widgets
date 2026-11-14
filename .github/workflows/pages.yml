@@ -1,0 +1,41 @@
+name: Website
+
+# Publishes site/ to GitHub Pages: https://solarity-ai.github.io/ai-usage-taskbar-widgets/
+on:
+  push:
+    branches: [main]
+    paths: ['site/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check that every local link and image exists
+        run: |
+          cd site
+          missing=0
+          for ref in $(grep -oE '(src|href)="[^"#:]+"' index.html | sed -E 's/^(src|href)="//; s/"$//' | sort -u); do
+            case "$ref" in ./) continue ;; esac
+            if [ ! -e "$ref" ]; then echo "::error::site/index.html links to missing file $ref"; missing=1; fi
+          done
+          exit $missing
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
