@@ -2,3 +2,6 @@
 install-last.log
 *.log
 *.tmp
+
+# Release downloads built by tools\package.ps1
+dist/
