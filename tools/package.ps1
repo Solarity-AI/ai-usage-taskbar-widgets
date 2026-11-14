@@ -2,9 +2,9 @@
 .SYNOPSIS
     Builds the release downloads in dist\ and checks that the version is the same everywhere.
 .DESCRIPTION
-    dist\ai-usage-taskbar-widgets.zip   both widgets and the README (unzip, then run each widget's install.ps1)
-    dist\claude-usage-widget.zip        the Claude widget only
-    dist\codex-usage-widget.zip         the Codex widget only
+    dist\ai-usage-taskbar-widgets.zip   both widgets, their double-click installers and the README
+    dist\claude-usage-widget.zip        the Claude widget and "Install Claude widget.cmd"
+    dist\codex-usage-widget.zip         the Codex widget and "Install Codex widget.cmd"
     dist\SHA256SUMS.txt                 checksums of the three zips
     dist\release-notes.md               this version's section of CHANGELOG.md
 
@@ -40,8 +40,11 @@ if (Test-Path -LiteralPath $dist) { Remove-Item -LiteralPath $dist -Recurse -For
 [void](New-Item -ItemType Directory -Path $dist)
 $widgets = @{ 'claude-usage-widget' = @('claude-usage-widget.ps1', 'claude-usage.ps1', 'install.ps1', 'uninstall.ps1')
               'codex-usage-widget'  = @('codex-usage-widget.ps1', 'codex-usage.ps1', 'install.ps1', 'uninstall.ps1') }
+$launchers = @{ 'claude-usage-widget' = 'Install Claude widget.cmd'; 'codex-usage-widget' = 'Install Codex widget.cmd' }
+foreach ($l in $launchers.Values) { if (-not (Test-Path -LiteralPath (Join-Path $root $l))) { throw "Missing $l" } }
 
 function New-Zip([string]$Path, [string[]]$Folders, [bool]$WithReadme) {
+    # Each widget folder comes with its double-click installer ("Install <Name> widget.cmd") at the zip root.
     # Entries use forward slashes and sit at the zip's root, so "Extract All" gives a folder holding the widget folders.
     $zip = [IO.Compression.ZipFile]::Open($Path, 'Create')
     try {
@@ -49,6 +52,10 @@ function New-Zip([string]$Path, [string[]]$Folders, [bool]$WithReadme) {
             foreach ($file in $widgets[$folder]) {
                 [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, (Join-Path $root "$folder\$file"), "$folder/$file", 'Optimal')
             }
+        }
+        foreach ($folder in $Folders) {
+            $launcher = $launchers[$folder]
+            [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, (Join-Path $root $launcher), $launcher, 'Optimal')
         }
         if ($WithReadme) { [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, (Join-Path $root 'README.md'), 'README.md', 'Optimal') }
     } finally { $zip.Dispose() }
