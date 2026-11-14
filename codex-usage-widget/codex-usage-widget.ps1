@@ -838,11 +838,21 @@ function Invoke-Alerts {
     $due = @(Get-AlertsDue $Data $wp $script:Settings $script:AlertsSent $script:ProductName)
     if ($due.Count -eq 0) { return }
     $nowU = ConvertTo-Unix ([DateTime]::UtcNow)
+    if ($null -eq $script:AlertRetryAt) { $script:AlertRetryAt = @{} }
+    $shown = $false
     foreach ($a in $due) {
-        [void](Show-Toast $a.title $a.text)
-        foreach ($k in $a.keys) { $script:AlertsSent[$k] = $nowU }
+        $key = (@($a.keys) -join '|')
+        if ($script:AlertRetryAt.ContainsKey($key) -and $script:AlertRetryAt[$key] -gt $nowU) { continue }
+        if (Show-Toast $a.title $a.text) {
+            foreach ($k in $a.keys) { $script:AlertsSent[$k] = $nowU }
+            $script:AlertRetryAt.Remove($key)
+            $shown = $true
+        } else {
+            # Windows refused the notification: keep the alert due and try again in 15 minutes.
+            $script:AlertRetryAt[$key] = $nowU + 900
+        }
     }
-    Save-AlertsSent
+    if ($shown) { Save-AlertsSent }
 }
 
 # ---------------------------------------------------------------- Win32 / WPF setup
