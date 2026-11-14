@@ -101,6 +101,8 @@ The two widgets share one codebase. `claude-usage-widget\` is the source. In `co
 
 Edit the Claude files, run `tools\sync.ps1`, then `tests\run-tests.ps1`. Scripts must stay compatible with Windows PowerShell 5.1 and saved as UTF-8 with BOM.
 
-## License
+## Copyright
 
-[MIT](LICENSE) © 2026 Solarity AI. Not affiliated with Anthropic or OpenAI; Claude and Codex are their respective trademarks.
+© 2026 Solarity AI. All rights reserved. This repository has no open-source license: its code may not be copied, modified or redistributed.
+
+Not affiliated with Anthropic or OpenAI; Claude and Codex are their respective trademarks.
