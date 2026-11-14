@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Website and install help
+    url: https://solarity-ai.github.io/ai-usage-taskbar-widgets/#install
+    about: Install steps, what the widgets read, and answers to common questions.
+  - name: Report a security problem privately
+    url: https://github.com/Solarity-AI/ai-usage-taskbar-widgets/security/advisories/new
+    about: Please don't open public issues for security problems.

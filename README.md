@@ -1,5 +1,10 @@
 # AI usage taskbar widgets
 
+[![Tests](https://img.shields.io/github/actions/workflow/status/Solarity-AI/ai-usage-taskbar-widgets/ci.yml?branch=main&label=tests)](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/Solarity-AI/ai-usage-taskbar-widgets?label=release)](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest)
+[![Website](https://img.shields.io/website?url=https%3A%2F%2Fsolarity-ai.github.io%2Fai-usage-taskbar-widgets%2F&label=website)](https://solarity-ai.github.io/ai-usage-taskbar-widgets/)
+[![Windows 10 and 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4)](#requirements)
+
 Two small Windows taskbar widgets show how much of your weekly **Claude** and **Codex** allowance is left. They also show when the allowance runs out at your current pace. Everything runs on your own PC: no server, no telemetry, nothing to sign up for.
 
 **[Website](https://solarity-ai.github.io/ai-usage-taskbar-widgets/)** · **[Download the latest release](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest)** · [Changelog](CHANGELOG.md)
@@ -37,7 +42,9 @@ Install one widget or both; they are independent.
 ## Install
 
 1. Download [**ai-usage-taskbar-widgets.zip**](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest/download/ai-usage-taskbar-widgets.zip) from the [latest release](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest), or `claude-usage-widget.zip` or `codex-usage-widget.zip` for just one widget. Unzip it anywhere. To check the download, compare `Get-FileHash` with the release's `SHA256SUMS.txt`.
-2. Open the unzipped folder, right-click an empty spot, choose **Open in Terminal**, and run the installer for each widget you want:
+2. In the unzipped folder, double-click **Install Claude widget.cmd** and/or **Install Codex widget.cmd**. If Windows asks whether to run a file from the internet, choose **Run** (or **More info → Run anyway**).
+
+Prefer a terminal? Open the unzipped folder in one: on Windows 11, right-click an empty spot and choose **Open in Terminal**; on Windows 10, hold **Shift**, right-click an empty spot and choose **Open PowerShell window here**. Then run the installer for each widget you want:
 
 ```bash
 powershell -NoProfile -ExecutionPolicy Bypass -File .\claude-usage-widget\install.ps1

@@ -120,7 +120,7 @@ $tok = $null; $err = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($Widget, [ref]$tok, [ref]$err)
 $want = 'ConvertTo-UtcTime', 'ConvertTo-Unix', 'Get-Left', 'Format-Percent', 'Get-LevelKey', 'Format-Span', 'Get-ResetText', 'Format-LocalTime', 'Format-Rate',
     'Get-PaceInfo', 'Get-PaceView', 'Write-AtomicText', 'Get-PillFitHeight', 'New-History', 'Read-History', 'Add-HistorySample', 'ConvertTo-HistoryJson', 'Get-ClearX', 'Write-Log',
-    'Format-Number', 'Format-Share', 'Test-Snoozed', 'Get-SnoozeUntil', 'Format-SnoozeEnd', 'Find-SignInCli', 'Get-SameWindowSamples', 'Get-DailyBudget', 'Get-ChartGeometry', 'Get-Trend', 'Get-AlertsDue', 'ConvertTo-Settings', 'Add-WindowSample', 'Get-SpendValue', 'Format-DayTime', 'Format-ResetLine', 'Format-UsedShare', 'Get-PaceSummary', 'Get-WindowLabel'
+    'Format-Number', 'Format-Share', 'Test-Snoozed', 'Get-SnoozeUntil', 'Format-SnoozeEnd', 'Find-SignInCli', 'Get-SameWindowSamples', 'Get-DailyBudget', 'Get-ChartGeometry', 'Get-Trend', 'Get-AlertsDue', 'ConvertTo-Settings', 'Add-WindowSample', 'Get-SpendValue', 'Format-DayTime', 'Format-ResetLine', 'Format-UsedShare', 'Get-PaceSummary', 'Get-WindowLabel', 'Invoke-Alerts'
 $script:AppDir = $Root; $script:LogPath = Join-Path $Root 'widget.log'; $script:HistoryDays = 15; $script:AnchorGapPx = 8; $script:Inv = [Globalization.CultureInfo]::InvariantCulture
 foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $n.Name }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
 foreach ($a2 in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -in '$script:PillXaml', '$script:CardXaml', '$script:Thresholds' }, $true)) { . ([scriptblock]::Create($a2.Extent.Text)) }
@@ -269,6 +269,18 @@ Check 'QA-01: text where numbers belong -> defaults, no exception' ($null -eq $b
 $bad2 = $null; try { $bs2 = ConvertTo-Settings ('{"snooze_until":1e30,"x":1e300,"y":1,"placement":"manual"}' | ConvertFrom-Json) 60 $nowP; $f2 = Format-SnoozeEnd $bs2.snooze_until $nowP } catch { $bad2 = $_.Exception.Message }
 Check 'QA-01: far-future snooze / huge position -> ignored, no exception' ($null -eq $bad2 -and $bs2.snooze_until -eq 0 -and $bs2.placement -eq 'auto') "$bad2"
 Check 'QA-01: JSON that is not an object (array root) -> defaults' ((ConvertTo-Settings ('[1,2]' | ConvertFrom-Json) 60 $nowP).poll -eq 60) ''
+# Invoke-Alerts: an alert Windows refused is not marked as shown; it is retried after 15 minutes
+function Show-Toast { param($Title, $Text) $script:ToastCalls++; return $script:ToastOk }
+function Get-WindowSamples { param($Key) return @() }
+function Save-AlertsSent { $script:AlertSaves++ }
+$script:Settings = ConvertTo-Settings $null 60; $script:ProductName = 'Claude'; $script:AlertsSent = @{}; $script:AlertRetryAt = @{}
+$script:ToastCalls = 0; $script:AlertSaves = 0; $script:ToastOk = $false
+$iaData = [pscustomobject]@{ stale = $false; weekly = [pscustomobject]@{ used = 95; window_seconds = 604800; resets_at = [DateTime]::UtcNow.AddHours(30).ToString('o') }; session = $null }
+Invoke-Alerts $iaData; $iaFirst = $script:ToastCalls; Invoke-Alerts $iaData
+Check 'alerts: a refused toast stays due (not marked shown) and is not retried within 15 min' ($iaFirst -ge 1 -and $script:AlertsSent.Count -eq 0 -and $script:ToastCalls -eq $iaFirst -and $script:AlertSaves -eq 0) "calls=$($script:ToastCalls) sent=$($script:AlertsSent.Count)"
+$script:AlertRetryAt = @{}; $script:ToastOk = $true
+Invoke-Alerts $iaData
+Check 'alerts: once Windows shows it, the alert is recorded and saved' ($script:AlertsSent.Count -ge 1 -and $script:ToastCalls -eq 2 * $iaFirst -and $script:AlertSaves -eq 1) "calls=$($script:ToastCalls) sent=$($script:AlertsSent.Count)"
 # ---- alerts
 $aset = ConvertTo-Settings $null 60
 $rk = [long][Math]::Round($rU / 3600.0)

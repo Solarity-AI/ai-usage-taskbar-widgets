@@ -60,7 +60,7 @@ $script:LogPath       = Join-Path $script:AppDir 'widget.log'
 $script:CollectorPath = Join-Path $PSScriptRoot $script:CollectorName
 $script:UninstallPath = Join-Path $PSScriptRoot 'uninstall.ps1'
 $script:ShortcutPath  = Join-Path ([Environment]::GetFolderPath('Startup')) ('{0} Usage Widget.lnk' -f $script:ProductName)
-$script:Version       = '1.0.0'          # release version (tools\package.ps1 and the release workflow check it)
+$script:Version       = '1.1.0'          # release version (tools\package.ps1 and the release workflow check it)
 $script:HomeUrl       = 'https://solarity-ai.github.io/ai-usage-taskbar-widgets/'
 $script:CollectorTimeoutSeconds = 120   # the collector may run the official CLI
 $script:AnchorGapPx   = 8               # physical pixels between neighbouring pills / the notification area
@@ -838,11 +838,21 @@ function Invoke-Alerts {
     $due = @(Get-AlertsDue $Data $wp $script:Settings $script:AlertsSent $script:ProductName)
     if ($due.Count -eq 0) { return }
     $nowU = ConvertTo-Unix ([DateTime]::UtcNow)
+    if ($null -eq $script:AlertRetryAt) { $script:AlertRetryAt = @{} }
+    $shown = $false
     foreach ($a in $due) {
-        [void](Show-Toast $a.title $a.text)
-        foreach ($k in $a.keys) { $script:AlertsSent[$k] = $nowU }
+        $key = (@($a.keys) -join '|')
+        if ($script:AlertRetryAt.ContainsKey($key) -and $script:AlertRetryAt[$key] -gt $nowU) { continue }
+        if (Show-Toast $a.title $a.text) {
+            foreach ($k in $a.keys) { $script:AlertsSent[$k] = $nowU }
+            $script:AlertRetryAt.Remove($key)
+            $shown = $true
+        } else {
+            # Windows refused the notification: keep the alert due and try again in 15 minutes.
+            $script:AlertRetryAt[$key] = $nowU + 900
+        }
     }
-    Save-AlertsSent
+    if ($shown) { Save-AlertsSent }
 }
 
 # ---------------------------------------------------------------- Win32 / WPF setup

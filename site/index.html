@@ -19,6 +19,22 @@
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="The Claude and Codex usage cards and taskbar pills">
 <meta name="twitter:card" content="summary_large_image">
+<link rel="sitemap" type="application/xml" href="sitemap.xml">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "AI usage taskbar widgets",
+  "description": "Windows taskbar widgets that show how much of your weekly Claude and Codex allowance is left, and when it runs out at your pace.",
+  "applicationCategory": "UtilitiesApplication",
+  "operatingSystem": "Windows 10, Windows 11",
+  "url": "https://solarity-ai.github.io/ai-usage-taskbar-widgets/",
+  "downloadUrl": "https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest/download/ai-usage-taskbar-widgets.zip",
+  "screenshot": "https://solarity-ai.github.io/ai-usage-taskbar-widgets/og.png",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "publisher": { "@type": "Organization", "name": "Solarity AI", "url": "https://solarityai.com" }
+}
+</script>
 <style>
 :root{--bg:#0f1217;--surface:#161a21;--card:#1d2129;--line:#2a2f39;--text:#f2f5fa;--dim:#a4aab2;--mute:#7d838c;--teal:#5eebd2;--teal-a:#3ccd9c;--teal-b:#28cfe4;--orange:#fcba75;--red:#f58a88;--code:#12151b;--btn:#f2f5fa;--btn-text:#0f1217;color-scheme:dark}
 @media (prefers-color-scheme:light){:root{--bg:#f6f7f9;--surface:#ffffff;--card:#ffffff;--line:#e2e5ea;--text:#1b1f27;--dim:#545b66;--mute:#6b727c;--teal:#0b8a7d;--teal-a:#23b98a;--teal-b:#10a9c6;--orange:#c9620a;--red:#cc2f35;--code:#f1f3f6;--btn:#1b1f27;--btn-text:#ffffff;color-scheme:light}}
@@ -133,8 +149,8 @@ footer a{color:var(--dim)}
 
   <div class="stage" aria-label="The Codex and Claude cards above their taskbar pills">
     <div class="cards">
-      <img src="images/codex-card.png" width="700" height="731" alt="Codex usage card: 10% left this week, 62,500 credits left, a red pace box saying Too fast with the run-out time, and the weekly limit bar at 90% used">
-      <img src="images/claude-card.png" width="700" height="814" alt="Claude usage card: 55% left this week for all models, a teal pace box saying On pace with when it would run out, and bars for the weekly and 5-hour session limits">
+      <img src="images/codex-card.png" width="700" height="731" fetchpriority="high" decoding="async" alt="Codex usage card: 10% left this week, 62,500 credits left, a red pace box saying Too fast with the run-out time, and the weekly limit bar at 90% used">
+      <img src="images/claude-card.png" width="700" height="814" fetchpriority="high" decoding="async" alt="Claude usage card: 55% left this week for all models, a teal pace box saying On pace with when it would run out, and bars for the weekly and 5-hour session limits">
     </div>
     <div class="taskbar">
       <img src="images/codex-pill.png" alt="Codex pill: ring at 10% with an orange edge, codex · 5d 1h until the reset" width="270" height="110">
@@ -191,7 +207,8 @@ footer a{color:var(--dim)}
     <p class="sub">You need Windows 10 or 11 and its built-in Windows PowerShell 5.1. There is nothing else to install and no admin rights are needed. Sign in to Claude Code (for the Claude widget) or the Codex app or CLI (for the Codex widget) on the same PC first.</p>
     <ol class="steps">
       <li><h3>Download and unzip</h3><p>Get <a href="https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest/download/ai-usage-taskbar-widgets.zip">ai-usage-taskbar-widgets.zip</a> from the latest release and unzip it anywhere, for example to your Downloads folder.</p></li>
-      <li><h3>Run the installer for each widget you want</h3><p>Open the unzipped folder, right-click an empty spot and choose <b>Open in Terminal</b>, then paste:</p>
+      <li><h3>Double-click the installer for each widget you want</h3><p>In the unzipped folder, double-click <b>Install Claude widget.cmd</b> and/or <b>Install Codex widget.cmd</b>. If Windows asks about a file from the internet, choose <b>Run</b> (or <b>More info → Run anyway</b>).</p>
+        <p>Prefer a terminal? Open the folder in one (Windows 11: right-click an empty spot → <b>Open in Terminal</b>; Windows 10: <b>Shift</b> + right-click → <b>Open PowerShell window here</b>) and paste:</p>
         <div class="code"><code id="c1">powershell -NoProfile -ExecutionPolicy Bypass -File .\claude-usage-widget\install.ps1</code><button class="copy" type="button" data-copy="c1">Copy</button></div>
         <div class="code"><code id="c2">powershell -NoProfile -ExecutionPolicy Bypass -File .\codex-usage-widget\install.ps1</code><button class="copy" type="button" data-copy="c2">Copy</button></div>
       </li>

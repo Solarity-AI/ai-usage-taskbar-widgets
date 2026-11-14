@@ -2,3 +2,5 @@
 # and tools\sync.ps1 -Check compares generated files exactly.
 *.ps1 -text
 *.png binary
+# cmd.exe needs CRLF line endings
+*.cmd text eol=crlf
