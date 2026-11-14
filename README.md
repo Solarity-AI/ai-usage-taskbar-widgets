@@ -111,6 +111,8 @@ Edit the Claude files, run `tools\sync.ps1`, then `tests\run-tests.ps1`. Scripts
 
 The **Release** workflow tests again, builds the three zips and `SHA256SUMS.txt` (`tools\package.ps1`), and publishes the release with that version's changelog section as its notes.
 
-## License
+## Copyright
 
-[MIT](LICENSE) © 2026 Solarity AI. Not affiliated with Anthropic or OpenAI; Claude and Codex are their respective trademarks.
+© 2026 Solarity AI. All rights reserved. This repository has no open-source license: its code may not be copied, modified or redistributed.
+
+Not affiliated with Anthropic or OpenAI; Claude and Codex are their respective trademarks.
