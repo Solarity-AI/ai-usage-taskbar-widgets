@@ -13,8 +13,8 @@
     autostart. The installer detects this and re-runs itself once through a temporary Task Scheduler task
     (outside the sandbox, as you, no admin), shows that run's output, and removes the task.
 
-    cmd.exe:    powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File "%USERPROFILE%\source\claude-usage-widget\install.ps1"
-    PowerShell: & powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File "$env:USERPROFILE\source\claude-usage-widget\install.ps1"
+    Run from the unzipped release (or a clone of the repository):
+        powershell -NoProfile -ExecutionPolicy Bypass -File .\claude-usage-widget\install.ps1
 #>
 [CmdletBinding()]
 param(
@@ -199,6 +199,8 @@ foreach ($f in $Package) {
         Stop-Install ("Could not write {0}: {1} If security software restored or protects this file, allow the folder {2} and run the installer again." -f $dst, $_.Exception.Message, $InstallDir)
     }
 }
+# Files from a downloaded zip carry Windows' "from the internet" mark; clear it on the installed copies.
+foreach ($f in $Package) { try { Unblock-File -LiteralPath (Join-Path $InstallDir $f) -ErrorAction Stop } catch { } }
 foreach ($keep in @('settings.json', 'history.json', 'usage-cache.json')) {
     if (Test-Path -LiteralPath (Join-Path $InstallDir $keep)) { Write-Ok "Preserved $keep" }
 }

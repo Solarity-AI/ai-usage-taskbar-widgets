@@ -60,6 +60,8 @@ $script:LogPath       = Join-Path $script:AppDir 'widget.log'
 $script:CollectorPath = Join-Path $PSScriptRoot $script:CollectorName
 $script:UninstallPath = Join-Path $PSScriptRoot 'uninstall.ps1'
 $script:ShortcutPath  = Join-Path ([Environment]::GetFolderPath('Startup')) ('{0} Usage Widget.lnk' -f $script:ProductName)
+$script:Version       = '1.0.0'          # release version (tools\package.ps1 and the release workflow check it)
+$script:HomeUrl       = 'https://solarity-ai.github.io/ai-usage-taskbar-widgets/'
 $script:CollectorTimeoutSeconds = 120   # the collector may run the official CLI
 $script:AnchorGapPx   = 8               # physical pixels between neighbouring pills / the notification area
 $script:HistoryDays   = 15
@@ -1094,6 +1096,7 @@ $script:MenuXaml = @'
   <MenuItem x:Name="MenuLog" Header="Open _data folder" Icon="&#xE8B7;"/>
   <MenuItem x:Name="MenuUninstall" Header="_Uninstall..." Icon="&#xE74D;"/>
   <Separator/>
+  <MenuItem x:Name="MenuAbout" Header="About" Icon="&#xE946;"/>
   <MenuItem x:Name="MenuExit" Header="E_xit" Icon="&#xE8BB;"/>
 </ContextMenu>
 '@
@@ -1851,8 +1854,8 @@ function Update-Chart {
     $ui.ChartFrame.BorderBrush = $T.lineB; $ui.ChartFrame.Background = $T.boxBgB
     $ui.ChartTitle.Foreground = $T.fgB
     $ui.ChartLegend.Foreground = $T.dimB; $ui.ChartStart.Foreground = $T.dimB; $ui.ChartEnd.Foreground = $T.dimB
-    $ui.ChartStart.Text = 'Started ' + $Geo.start.ToLocalTime().ToString('ddd HH:mm', [Globalization.CultureInfo]::InvariantCulture)
-    $ui.ChartEnd.Text = 'Resets ' + (Format-DayTime $Geo.reset)
+    $ui.ChartStart.Text = 'Started ' + $Geo.start.ToLocalTime().ToString('ddd d MMM', [Globalization.CultureInfo]::InvariantCulture)
+    $ui.ChartEnd.Text = 'Resets ' + $Geo.reset.ToLocalTime().ToString('ddd d MMM, HH:mm', [Globalization.CultureInfo]::InvariantCulture)
     # Legend with colored line samples instead of words.
     $ui.ChartLegend.Inlines.Clear()
     $add = { param($text, $brush) $r = New-Object Windows.Documents.Run $text; if ($null -ne $brush) { $r.Foreground = $brush }; $ui.ChartLegend.Inlines.Add($r) }
@@ -2151,6 +2154,7 @@ function Update-MenuChecks {
     $m.MenuReset.IsEnabled = ($s.placement -eq 'manual')
     $m.MenuStartup.IsChecked = (Test-Path -LiteralPath $script:ShortcutPath)
     $m.MenuUninstall.IsEnabled = (Test-Path -LiteralPath $script:UninstallPath)
+    $m.MenuAbout.Header = ('About (version {0})' -f $script:Version)
     $m.MenuSignIn.IsEnabled = ($null -eq $script:SignInProc -or $script:SignInProc.HasExited)
     $snoozed = Test-Snoozed $s
     $m.MenuSnooze.IsEnabled = [bool]$s.alerts
@@ -2224,6 +2228,7 @@ function Initialize-Menu {
             Write-Log 'uninstall started from the menu'
         } catch { [void][Windows.MessageBox]::Show("The uninstaller could not be started: $($_.Exception.Message)", $script:WindowTitle) }
     })
+    $m.MenuAbout.add_Click({ try { Start-Process $script:HomeUrl } catch { Write-Log 'could not open the website' } })
     $m.MenuExit.add_Click({ Stop-Widget })
 }
 
@@ -2321,7 +2326,7 @@ function Start-Widget {
     Sync-Pills
     Start-Refresh $false
     foreach ($t in @($script:PollTimer, $script:TickTimer, $script:PlaceTimer, $script:RenderTimer)) { $t.Start() }
-    Write-Log "started (pid $PID) from $PSScriptRoot"
+    Write-Log "started v$($script:Version) (pid $PID) from $PSScriptRoot"
     [void]$app.Run()
     if ($script:HistoryDirty) { Save-History }
     try { $script:Mutex.ReleaseMutex() } catch { }

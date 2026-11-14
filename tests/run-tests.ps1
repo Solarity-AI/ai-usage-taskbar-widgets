@@ -15,6 +15,10 @@ $fail = 0
 & $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'tools\sync.ps1') -Check
 if ($LASTEXITCODE -ne 0) { $fail++ }
 
+# Version check and packaging (the same step the release workflow runs).
+& $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'tools\package.ps1') | Out-Null
+if ($LASTEXITCODE -ne 0) { Write-Host 'FAIL packaging or version check (tools\package.ps1)'; $fail++ } else { Write-Host 'Package OK (version, changelog and zips)' }
+
 $suites = @(
     @{ name = 'Claude'; file = 'test-claude.ps1'; dir = 'claude-usage-widget' },
     @{ name = 'Codex';  file = 'test-codex.ps1';  dir = 'codex-usage-widget' }
