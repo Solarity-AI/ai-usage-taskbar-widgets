@@ -2,6 +2,8 @@
 
 Two small Windows taskbar widgets show how much of your weekly **Claude** and **Codex** allowance is left. They also show when the allowance runs out at your current pace. Everything runs on your own PC: no server, no telemetry, nothing to sign up for.
 
+**[Website](https://solarity-ai.github.io/ai-usage-taskbar-widgets/)** · **[Download the latest release](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest)** · [Changelog](CHANGELOG.md)
+
 <p>
   <img src="docs/images/claude-card.png" width="330" alt="Claude usage card: 55% left this week, pace box saying On pace and when it would run out, weekly and 5-hour limit bars">
   <img src="docs/images/codex-card.png" width="330" alt="Codex usage card: 10% left this week, credits line, red pace box saying Too fast with the run-out time, weekly limit bar">
@@ -16,7 +18,7 @@ Two small Windows taskbar widgets show how much of your weekly **Claude** and **
 - **A pill on the taskbar.** A ring shows the share of the weekly allowance left, with the time until the weekly reset (or today's budget). The edge turns orange or red when little is left.
 - **A card on hover.** It shows the share left and a *Pace this week* box: *On pace*, *Cutting close* or *Too fast*, with the time the allowance runs out at your current rate. It also has a bar for every limit (weekly, 5-hour session, per-model limits) with its reset time, plus credits or extra usage when your plan has them. Click the pill to pin the card and refresh it.
 - **Alerts.** Windows notifications fire at 25% and 10% left, when the limit is reached, and when you are on track to run out before the reset. Thresholds are adjustable, and alerts can be snoozed for 1 hour, until tomorrow morning or until the weekly reset.
-- **A right-click menu.** It has *Refresh now*, *Open usage page*, *Sign in again*, *Snooze alerts*, *Alerts*, *Pill shows*, *Refresh every*, *Compact pill*, *Show details* (a burn-up chart of the week and the full pace breakdown), *Show on every taskbar*, *Start with Windows* and *Uninstall*.
+- **A right-click menu.** It has *Refresh now*, *Open usage page*, *Sign in again*, *Snooze alerts*, *Alerts*, *Pill shows*, *Refresh every*, *Compact pill*, *Show details* (a burn-up chart of the week and the full pace breakdown), *Show on every taskbar*, *Start with Windows*, *Uninstall* and *About* (version and website).
 - **Light and dark themes**, following Windows. Per-monitor DPI. The pills hide while a full-screen app is in front. Drag the main pill sideways to move it; the Codex pill sits next to the Claude pill.
 
 <p>
@@ -34,8 +36,8 @@ Install one widget or both; they are independent.
 
 ## Install
 
-1. Download this repository: **Code → Download ZIP** on GitHub, or `git clone`. Unzip it anywhere.
-2. In a terminal in that folder, run the installer for each widget you want:
+1. Download [**ai-usage-taskbar-widgets.zip**](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest/download/ai-usage-taskbar-widgets.zip) from the [latest release](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest), or `claude-usage-widget.zip` or `codex-usage-widget.zip` for just one widget. Unzip it anywhere. To check the download, compare `Get-FileHash` with the release's `SHA256SUMS.txt`.
+2. Open the unzipped folder, right-click an empty spot, choose **Open in Terminal**, and run the installer for each widget you want:
 
 ```bash
 powershell -NoProfile -ExecutionPolicy Bypass -File .\claude-usage-widget\install.ps1
@@ -97,9 +99,17 @@ The two widgets share one codebase. `claude-usage-widget\` is the source. In `co
 | Command | What it does |
 |---|---|
 | `powershell -NoProfile -ExecutionPolicy Bypass -File tools\sync.ps1` | Regenerates the Codex widget, installer and uninstaller from the Claude ones; checks that every script parses and has a UTF-8 BOM |
-| `powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1` | What CI runs: `sync.ps1 -Check`, then both test suites (simulated: fake sign-ins and CLIs, no network) |
+| `powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1` | Builds the release zips and checksums in `dist\`; checks that the version matches `CHANGELOG.md` |
+| `powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1` | What CI runs: `sync.ps1 -Check`, the version and packaging check, then both test suites (simulated: fake sign-ins and CLIs, no network) |
 
 Edit the Claude files, run `tools\sync.ps1`, then `tests\run-tests.ps1`. Scripts must stay compatible with Windows PowerShell 5.1 and saved as UTF-8 with BOM.
+
+**Releasing a version:**
+1. Raise `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1` and add a section for it at the top of `CHANGELOG.md`.
+2. Run `tools\sync.ps1` and `tests\run-tests.ps1`, then merge.
+3. Tag the merge commit `v<version>` and push the tag.
+
+The **Release** workflow tests again, builds the three zips and `SHA256SUMS.txt` (`tools\package.ps1`), and publishes the release with that version's changelog section as its notes.
 
 ## License
 
