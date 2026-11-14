@@ -2,6 +2,21 @@
 
 Each release is listed here, newest first. The version is `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1`; tagging `v<version>` publishes it as a GitHub release with downloadable zips.
 
+## 1.1.0 (2026-11-14)
+
+**Easier install:** the downloads now include **Install Claude widget.cmd** and **Install Codex widget.cmd**. Unzip and double-click; no terminal needed. The terminal steps now also explain the Windows 10 way to open one.
+
+**Fixed:** if Windows refused a notification (for example during Focus or Do not disturb), that alert was marked as shown and lost for the week. It now stays due and is retried after 15 minutes.
+
+**Also:**
+- A security policy with private vulnerability reporting.
+- A bug report form that asks for the version shown in About.
+- Dependabot for the workflow actions.
+- `.editorconfig` that keeps scripts UTF-8 with BOM.
+- Link checks for the website and README on every pull request.
+- Search metadata and a faster first paint on the website.
+- Badges in the README.
+
 ## 1.0.0 (2026-11-14)
 
 The first public release of the Claude and Codex usage taskbar widgets.
