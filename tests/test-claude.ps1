@@ -431,6 +431,18 @@ $alive2 = @($t2.kids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyCo
 Check 'collector timeout: child left by an exited collector stopped' ($t2.kids.Count -ge 1 -and $t2.root.HasExited -and $alive2.Count -eq 0) "kids=$($t2.kids -join ',') alive=$($alive2 -join ',')"
 foreach ($id in @($t1.kids + $t2.kids)) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
 
+# #35 regression: a collector's CLI timeout ends the CLI and every child it started (Claude and Codex collectors)
+foreach ($cp in @($Collector, (Join-Path (Split-Path $Dir) 'codex-usage-widget\codex-usage.ps1'))) {
+    $cAst = [System.Management.Automation.Language.Parser]::ParseFile($cp, [ref]$tok, [ref]$err)
+    foreach ($f in $cAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-TreeKill' }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
+    $t3 = Start-Tree 90
+    Invoke-TreeKill $t3.root; Start-Sleep -Milliseconds 700
+    $alive3 = @(@($t3.root.Id) + $t3.kids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
+    Check ('#35: {0} timeout ends the CLI and its children' -f (Split-Path -Leaf $cp)) ($t3.kids.Count -ge 1 -and $alive3.Count -eq 0) "kids=$($t3.kids -join ',') alive=$($alive3 -join ',')"
+    foreach ($id in $t3.kids) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
+    Remove-Item function:Invoke-TreeKill -ErrorAction SilentlyContinue
+}
+
 # ---- QA bug hunt 2026-11-16 (#30, #31, #35, #37, #38): code paths that need Windows, checked in the source
 $colSrc = [IO.File]::ReadAllText($Collector)
 $cxSrc = [IO.File]::ReadAllText((Join-Path (Split-Path $Dir) 'codex-usage-widget\codex-usage.ps1'))
