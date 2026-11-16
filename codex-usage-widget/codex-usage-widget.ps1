@@ -1052,7 +1052,7 @@ $script:PillXaml = @'
         <TextBlock x:Name="Badge" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="9" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" Text="&#xE708;"/>
       </Grid>
       <StackPanel VerticalAlignment="Center">
-        <TextBlock x:Name="Hero" FontFamily="Segoe UI Variable Display, Segoe UI" FontSize="16" FontWeight="SemiBold" Margin="0,-3,0,0"><Run x:Name="HeroNum" Text="..."/><Run x:Name="HeroPct" FontSize="10.5" FontWeight="Normal" Text=""/></TextBlock>
+        <TextBlock x:Name="Hero" FontFamily="Segoe UI Variable Display, Segoe UI" FontSize="16" FontWeight="SemiBold" Margin="0,-3,0,0"><Run x:Name="HeroNum" Text="..."/><Run x:Name="HeroPct" FontSize="10.5" FontWeight="Normal" Text=""/><Run x:Name="HeroTag" FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="10" FontWeight="Normal" Text=""/></TextBlock>
         <TextBlock x:Name="Sub" FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="10" Margin="0,-3,0,0" Text=""/>
       </StackPanel>
     </StackPanel>
@@ -1426,7 +1426,14 @@ function Set-PillFit {
     }
     if ([Math]::Abs($P.UI.Pill.Height - $target) -gt 0.1) { $P.UI.Pill.Height = $target }
     $sub = $(if ($script:Settings.compact) { 'Collapsed' } else { 'Visible' })
-    if ($P.UI.Sub.Visibility -ne $sub) { $P.UI.Sub.Visibility = $sub; Set-PillWidth $P.UI }
+    if ($P.UI.Sub.Visibility -ne $sub) { $P.UI.Sub.Visibility = $sub; $P.UI.HeroTag.Text = Get-PillTag; Set-PillWidth $P.UI }
+}
+
+function Get-PillTag {
+    # The product name sits after the percentage on the top line, so the second line holds only the status
+    # and the pill stays narrow. Compact mode shows the number alone.
+    if ($script:Settings.compact) { return '' }
+    return ' ' + $script:ProductKey
 }
 
 function Set-PillWidth {
@@ -1501,7 +1508,7 @@ function New-Pill {
     $win.Title = $script:WindowTitle
     $ui = @{}
     foreach ($n in @([regex]::Matches($script:PillXaml, 'x:Name="(\w+)"') | ForEach-Object { $_.Groups[1].Value })) { $ui[$n] = $win.FindName($n) }
-    $ui.Sub.Text = $script:ProductKey
+    $ui.HeroTag.Text = Get-PillTag
     $ui.Pill.ContextMenu = $script:Menu
     $ui.Pill.MinWidth = $(if ($script:Settings.compact) { $script:CompactWidth } else { $script:PillWidth })
     $ui.Sub.Visibility = $(if ($script:Settings.compact) { 'Collapsed' } else { 'Visible' })
@@ -1960,7 +1967,7 @@ function Update-PillVisual {
     $ui.Pill.Background = $st.bg; $ui.Pill.BorderBrush = $st.border
     $num = [string]$st.hero; $sign = ''
     if ($num.Length -gt 1 -and $num.EndsWith('%')) { $sign = '%'; $num = $num.Substring(0, $num.Length - 1) }
-    $ui.HeroNum.Text = $num; $ui.HeroPct.Text = $sign
+    $ui.HeroNum.Text = $num; $ui.HeroPct.Text = $sign; $ui.HeroTag.Text = Get-PillTag; $ui.HeroTag.Foreground = $st.tagBrush
     $ui.Hero.Foreground = $st.fg; $ui.Hero.Opacity = $st.opacity; $ui.Hero.FontStyle = $st.style
     $ui.Sub.Text = $st.sub; $ui.Sub.Foreground = $st.subBrush
     $ui.RingTrack.Stroke = $st.track
@@ -1999,10 +2006,10 @@ function Update-View {
         $ui.HeroLines.Children.Clear()
         $ui.PaceLines.Children.Clear()
         $st = @{ bg = $T.pillBgB; border = $T.pillBorderB; fg = $T.pillFgB; track = $T.pillTrackB; opacity = 1.0; style = [Windows.FontStyles]::Normal
-                 subBrush = $T.pillDimB; snoozed = $snoozed; stale = $false; fraction = $null; ring = $T.grayRingB }
+                 subBrush = $T.pillDimB; tagBrush = $T.pillDimB; snoozed = $snoozed; stale = $false; fraction = $null; ring = $T.grayRingB }
         if ($null -eq $d) {
             $st.hero = $(if ($script:CollectorFailure) { [string][char]0x2014 } else { '...' })
-            $st.sub = $tag + " $dot " + $(if ($script:CollectorFailure) { 'unavailable' } else { 'loading' })
+            $st.sub = $(if ($script:CollectorFailure) { 'unavailable' } else { 'loading' })
             $st.a11y = "$($script:WindowTitle): $($st.sub)"
             $script:PillState = $st
             foreach ($p in @($script:Pills)) { Update-PillVisual $p }
@@ -2049,7 +2056,7 @@ function Update-View {
             if ($budget.over) { $st.subBrush = $T.warnB }
         }
         if ($script:Refreshing -and $script:ManualRefresh) { $subRight = 'refreshing' + [char]0x2026; $st.subBrush = $T.pillDimB }
-        $st.sub = "$tag $dot $subRight"
+        $st.sub = $subRight
         $st.a11y = ('{0}: {1} of the {2} limit left; {3}' -f $script:WindowTitle, $pct, $(if ($bind.kind -eq 'session') { '5-hour session' } else { 'weekly' }), $subRight)
         $script:PillState = $st
         foreach ($p in @($script:Pills)) { Update-PillVisual $p }
