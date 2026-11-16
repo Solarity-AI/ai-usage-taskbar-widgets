@@ -36,18 +36,25 @@ $script:MarkText      = '>_'
 
 # ---------------------------------------------------------------- single instance / STA
 
-if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne [Threading.ApartmentState]::STA) {
+# -Watchdog: run by the "<Product> Usage Widget watchdog" scheduled task every 5 minutes. It starts the widget
+# when it is not running (crashed, or closed by Windows after a hang) and restarts it when it stopped
+# responding; it never starts it after the user chose Exit or turned Start with Windows off.
+$script:WatchdogMode = ($args -contains '-Watchdog')
+
+if (-not $script:WatchdogMode -and [Threading.Thread]::CurrentThread.GetApartmentState() -ne [Threading.ApartmentState]::STA) {
     Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -WindowStyle Hidden -ArgumentList @(
         '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ('"{0}"' -f $PSCommandPath))
     exit 0
 }
 
-$script:CreatedNew = $false
-$script:Mutex = New-Object System.Threading.Mutex($true, ('Local\' + $script:AppName), [ref]$script:CreatedNew)
-if (-not $script:CreatedNew) {
-    $owned = $false
-    try { $owned = $script:Mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
-    if (-not $owned) { exit 0 }
+if (-not $script:WatchdogMode) {
+    $script:CreatedNew = $false
+    $script:Mutex = New-Object System.Threading.Mutex($true, ('Local\' + $script:AppName), [ref]$script:CreatedNew)
+    if (-not $script:CreatedNew) {
+        $owned = $false
+        try { $owned = $script:Mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
+        if (-not $owned) { exit 0 }
+    }
 }
 
 # ---------------------------------------------------------------- constants
@@ -57,6 +64,9 @@ $script:SettingsPath  = Join-Path $script:AppDir 'settings.json'
 $script:HistoryPath   = Join-Path $script:AppDir 'history.json'
 $script:AlertsPath    = Join-Path $script:AppDir 'alerts.json'
 $script:LogPath       = Join-Path $script:AppDir 'widget.log'
+$script:HeartbeatPath = Join-Path $script:AppDir 'heartbeat.txt'     # "<pid> <UTC ticks>", rewritten every 20 s
+$script:ExitedPath    = Join-Path $script:AppDir 'exited-by-user.txt' # the user chose Exit: the watchdog leaves it closed
+$script:HeartbeatStaleSeconds = 180
 $script:CollectorPath = Join-Path $PSScriptRoot $script:CollectorName
 $script:UninstallPath = Join-Path $PSScriptRoot 'uninstall.ps1'
 $script:ShortcutPath  = Join-Path ([Environment]::GetFolderPath('Startup')) ('{0} Usage Widget.lnk' -f $script:ProductName)
@@ -873,6 +883,7 @@ function Initialize-Native {
         Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 namespace UsageWidget {
@@ -951,23 +962,73 @@ namespace UsageWidget {
             return res;
         }
 
-        // True when the foreground window (not the desktop, a taskbar or our own process) covers the
-        // whole monitor that contains rect r: a full-screen game, video, presentation or the lock screen.
+        // Shell surfaces that cover the whole monitor for a moment (Start, Search, Task View, Alt+Tab, the
+        // notification center, taskbar thumbnails) but are not full-screen apps: the pills stay visible.
+        static readonly string[] ShellClasses = { "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd",
+            "MultitaskingViewFrame", "XamlExplorerHostIslandWindow", "TaskListThumbnailWnd", "ForegroundStaging",
+            "Windows.UI.Input.InputSite.WindowClass", "NotifyIconOverflowWindow", "TopLevelWindowForOverflowXamlIsland" };
+        static readonly string[] ShellProcesses = { "explorer", "StartMenuExperienceHost", "SearchHost", "SearchApp",
+            "ShellExperienceHost", "ShellHost", "TextInputHost" };
+
+        public static bool IsShellSurface(string cls, string process) {
+            if (Array.IndexOf(ShellClasses, cls) >= 0) return true;
+            foreach (string p in ShellProcesses) if (string.Equals(p, process, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        static string ProcessName(uint pid) {
+            try { using (Process p = Process.GetProcessById((int)pid)) return p.ProcessName; } catch { return ""; }
+        }
+
+        // True when the foreground window (not the desktop, a taskbar, a shell overlay or our own process)
+        // covers the whole monitor that contains rect r: a full-screen game, video, presentation or the lock screen.
         public static bool FullscreenInFront(RECT r, uint ownPid) {
             IntPtr h = GetForegroundWindow();
             if (h == IntPtr.Zero) return false;
             uint pid; GetWindowThreadProcessId(h, out pid);
             if (pid == ownPid) return false;
-            StringBuilder sb = new StringBuilder(64);
-            GetClassName(h, sb, 64);
+            StringBuilder sb = new StringBuilder(128);
+            GetClassName(h, sb, 128);
             string c = sb.ToString();
-            if (c == "Progman" || c == "WorkerW" || c == "Shell_TrayWnd" || c == "Shell_SecondaryTrayWnd") return false;
+            if (Array.IndexOf(ShellClasses, c) >= 0) return false;
             RECT w;
             if (!GetWindowRect(h, out w)) return false;
             RECT m = MonitorRect(r, true);
             if (m.Right <= m.Left) return false;
-            return w.Left <= m.Left && w.Top <= m.Top && w.Right >= m.Right && w.Bottom >= m.Bottom;
+            if (!(w.Left <= m.Left && w.Top <= m.Top && w.Right >= m.Right && w.Bottom >= m.Bottom)) return false;
+            return !IsShellSurface(c, ProcessName(pid));
         }
+
+        // Clicking the taskbar raises it above every topmost window until the pills re-assert themselves.
+        // A foreground-change hook puts the pills back on top at once instead of up to 1.5 s later.
+        delegate void WinEventProc(IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
+        [DllImport("user32.dll")] static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr mod, WinEventProc proc, uint pid, uint tid, uint flags);
+        static WinEventProc foregroundProc;
+        static IntPtr foregroundHook = IntPtr.Zero;
+        static IntPtr[] topmostHandles = new IntPtr[0];
+        static int foregroundChanges;
+
+        public static void SetTopmostHandles(IntPtr[] handles) { topmostHandles = handles ?? new IntPtr[0]; }
+
+        public static void RaiseTopmost() {
+            foreach (IntPtr h in topmostHandles) {
+                if (h != IntPtr.Zero && IsWindow(h) && IsWindowVisible(h))
+                    SetWindowPos(h, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0200);   // NOSIZE NOMOVE NOACTIVATE NOOWNERZORDER
+            }
+        }
+
+        public static bool WatchForeground() {
+            if (foregroundHook != IntPtr.Zero) return true;
+            foregroundProc = delegate (IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time) {
+                foregroundChanges++;
+                RaiseTopmost();
+            };
+            // EVENT_SYSTEM_FOREGROUND, out of context: delivered on this (UI) thread's message loop.
+            foregroundHook = SetWinEventHook(3, 3, IntPtr.Zero, foregroundProc, 0, 0, 0);
+            return foregroundHook != IntPtr.Zero;
+        }
+
+        public static int TakeForegroundChanges() { int n = foregroundChanges; foregroundChanges = 0; return n; }
     }
 }
 '@
@@ -1400,7 +1461,10 @@ function Update-PillPlacement {
     param($P)
     if ($null -eq $P.Hwnd -or ($script:Dragging -and $P.Primary)) { return }
     $pr = Get-WinRect $P.Hwnd
-    $full = [UsageWidget.Native]::FullscreenInFront($pr, [uint32]$PID)
+    # Hide only when full screen is seen on 2 checks in a row, so a window that covers the screen for a
+    # moment (a launching app, a shell animation) never makes the pills blink.
+    if ([UsageWidget.Native]::FullscreenInFront($pr, [uint32]$PID)) { $P.FullChecks = [int]$P.FullChecks + 1 } else { $P.FullChecks = 0 }
+    $full = ($P.FullChecks -ge 2) -or ($P.Hidden -and $P.FullChecks -ge 1)
     Set-PillHidden $P $full
     if ($full) { return }
     Set-PillFit $P
@@ -1420,6 +1484,7 @@ function Update-PillPlacement {
 function Update-Placement {
     Sync-Pills
     foreach ($p in @($script:Pills)) { try { Update-PillPlacement $p } catch { Write-Log "placement error: $($_.Exception.Message)" } }
+    [UsageWidget.Native]::SetTopmostHandles([IntPtr[]]@($script:Pills | Where-Object { $null -ne $_.Hwnd } | ForEach-Object { $_.Hwnd }))
 }
 
 # ---------------------------------------------------------------- pills (one per taskbar)
@@ -1441,7 +1506,7 @@ function New-Pill {
     $ui.Pill.MinWidth = $(if ($script:Settings.compact) { $script:CompactWidth } else { $script:PillWidth })
     $ui.Sub.Visibility = $(if ($script:Settings.compact) { 'Collapsed' } else { 'Visible' })
     [Windows.Automation.AutomationProperties]::SetName($ui.Pill, $script:WindowTitle)
-    $p = @{ Win = $win; Hwnd = $null; Bar = $Bar; Primary = $Primary; UI = $ui; Hidden = $false; Mode = $null; Note = $null; AnchorSeenAt = $null }
+    $p = @{ Win = $win; Hwnd = $null; Bar = $Bar; Primary = $Primary; UI = $ui; Hidden = $false; FullChecks = 0; Mode = $null; Note = $null; AnchorSeenAt = $null }
     [void]$script:Pills.Add($p)
 
     $ui.Pill.add_MouseEnter({ param($s, $e) $script:HideTimer.Stop(); if (-not $script:Dragging -and -not $script:Menu.IsOpen) { Show-Card (Get-PillBySender $s) } })
@@ -1582,7 +1647,7 @@ function Complete-Refresh {
     $elapsed = ([DateTime]::UtcNow - $script:ProcStarted).TotalSeconds
     if (-not $p.HasExited) {
         if ($elapsed -lt $script:CollectorTimeoutSeconds) { return }
-        try { $p.Kill() } catch { }
+        Stop-ProcessTree $p
         try { $p.Dispose() } catch { }
         $script:Proc = $null; $script:Refreshing = $false
         $script:CollectorFailure = 'The local collector timed out.'
@@ -2256,9 +2321,103 @@ function Initialize-Menu {
     $m.MenuExit.add_Click({ Stop-Widget })
 }
 
+function Stop-ProcessTree {
+    # Stops a collector and everything it started (the official CLI, node), so a hung child never outlives it.
+    param($Process)
+    $id = 0
+    try { $id = $Process.Id } catch { }
+    if ($id -gt 0) {
+        try {
+            $psi = New-Object Diagnostics.ProcessStartInfo (Join-Path $env:SystemRoot 'System32\taskkill.exe'), ('/PID {0} /T /F' -f $id)
+            $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
+            $k = [Diagnostics.Process]::Start($psi)
+            [void]$k.WaitForExit(3000)
+            $k.Dispose()
+        } catch { }
+    }
+    try { if (-not $Process.HasExited) { $Process.Kill() } } catch { }
+}
+
+function Write-Heartbeat {
+    # Proves to the watchdog that the UI thread is still running (written from a UI timer).
+    try {
+        if (-not (Test-Path -LiteralPath $script:AppDir)) { [void](New-Item -ItemType Directory -Path $script:AppDir -Force) }
+        [IO.File]::WriteAllText($script:HeartbeatPath, ('{0} {1}' -f $PID, [DateTime]::UtcNow.Ticks))
+    } catch { }
+}
+
+function Read-Heartbeat {
+    # Returns @{ Pid; Utc } from the heartbeat file, or $null when it is missing or unreadable.
+    param([string]$Path)
+    try {
+        $parts = ([IO.File]::ReadAllText($Path)).Trim() -split '\s+'
+        if ($parts.Count -ne 2) { return $null }
+        return @{ Pid = [int]$parts[0]; Utc = New-Object DateTime ([long]$parts[1]), ([DateTimeKind]::Utc) }
+    } catch { return $null }
+}
+
+function Get-WatchdogAction {
+    # What a watchdog run does. 'start': the widget is not running. 'restart': it holds its lock but has not
+    # written a heartbeat for StaleSeconds, also across a WaitSeconds re-check (a widget that just woke from
+    # sleep writes one at once). 'none': leave it alone (user chose Exit, Start with Windows is off, alive,
+    # no heartbeat to judge by, or the PC slept during the re-check).
+    param([bool]$LockFree, [bool]$UserExited, [bool]$Autostart, $First, $Second, [DateTime]$Now,
+        [double]$WaitedWallSeconds, [double]$WaitedSeconds, [int]$StaleSeconds = 180)
+    if ($UserExited -or -not $Autostart) { return 'none' }
+    if ($LockFree) { return 'start' }
+    if ($null -eq $First -or $null -eq $Second) { return 'none' }
+    if ($Second.Pid -ne $First.Pid -or $Second.Utc -ne $First.Utc) { return 'none' }
+    if (($WaitedWallSeconds - $WaitedSeconds) -gt 30) { return 'none' }
+    if (($Now - $Second.Utc).TotalSeconds -lt $StaleSeconds) { return 'none' }
+    return 'restart'
+}
+
+function Start-WidgetProcess {
+    Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -WindowStyle Hidden -ArgumentList @(
+        '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ('"{0}"' -f $PSCommandPath))
+}
+
+function Invoke-Watchdog {
+    $exited = Test-Path -LiteralPath $script:ExitedPath
+    $auto = Test-Path -LiteralPath $script:ShortcutPath
+    if ($exited -or -not $auto) { return }
+    $mutex = New-Object System.Threading.Mutex($false, ('Local\' + $script:AppName))
+    try {
+        $free = $false
+        try { $free = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $free = $true }
+        if ($free) {
+            $mutex.ReleaseMutex()
+            Write-Log 'watchdog: the widget was not running; starting it'
+            Start-WidgetProcess
+            return
+        }
+        $first = Read-Heartbeat $script:HeartbeatPath
+        if ($null -eq $first -or ([DateTime]::UtcNow - $first.Utc).TotalSeconds -lt $script:HeartbeatStaleSeconds) { return }
+        $wallStart = [DateTime]::UtcNow
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        Start-Sleep -Seconds 60
+        $second = Read-Heartbeat $script:HeartbeatPath
+        $action = Get-WatchdogAction -LockFree $false -UserExited (Test-Path -LiteralPath $script:ExitedPath) -Autostart $true `
+            -First $first -Second $second -Now ([DateTime]::UtcNow) -WaitedWallSeconds ([DateTime]::UtcNow - $wallStart).TotalSeconds `
+            -WaitedSeconds $sw.Elapsed.TotalSeconds -StaleSeconds $script:HeartbeatStaleSeconds
+        if ($action -ne 'restart') { return }
+        $hung = Get-Process -Id $second.Pid -ErrorAction SilentlyContinue
+        if ($null -eq $hung -or $hung.ProcessName -ne 'powershell') { return }
+        Write-Log ('watchdog: the widget (pid {0}) has not responded since {1:s}Z; restarting it' -f $second.Pid, $second.Utc)
+        try { $hung | Stop-Process -Force -ErrorAction Stop } catch { Write-Log "watchdog: could not stop it: $($_.Exception.Message)"; return }
+        $got = $false
+        try { $got = $mutex.WaitOne(15000) } catch [System.Threading.AbandonedMutexException] { $got = $true }
+        if (-not $got) { Write-Log 'watchdog: the old widget still holds its lock; trying again next run'; return }
+        $mutex.ReleaseMutex()
+        Start-WidgetProcess
+    } finally { $mutex.Dispose() }
+}
+
 function Stop-Widget {
     foreach ($t in @($script:PollTimer, $script:TickTimer, $script:PlaceTimer, $script:RenderTimer, $script:HideTimer)) { if ($null -ne $t) { $t.Stop() } }
-    if ($null -ne $script:Proc) { try { $script:Proc.Kill() } catch { } }
+    # The user chose Exit: the watchdog must not start the widget again (a normal start clears this).
+    try { [IO.File]::WriteAllText($script:ExitedPath, [DateTime]::UtcNow.ToString('o')) } catch { }
+    if ($null -ne $script:Proc) { Stop-ProcessTree $script:Proc }
     if ($script:HistoryDirty) { Save-History }
     try { $script:CardWindow.Close() } catch { }
     foreach ($p in @($script:Pills)) { try { $p.Win.Close() } catch { } }
@@ -2327,6 +2486,14 @@ function Start-Widget {
     $script:TickTimer.Interval = [TimeSpan]::FromMilliseconds(250)
     $script:TickTimer.add_Tick({ if ($null -ne $script:SignInProc -and $script:SignInProc.HasExited) { $script:SignInProc = $null; Write-Log 'sign-in window closed; refreshing'; $script:ManualRefresh = $true; Start-Refresh $true } })
     $script:TickTimer.add_Tick({ try { Complete-Refresh } catch { Write-Log "refresh error: $($_.Exception.Message)"; $script:Proc = $null; $script:Refreshing = $false } })
+    # A foreground change already re-raised the pills (in the hook); a hidden pill re-checks at once so it
+    # comes back as soon as the full-screen app loses focus instead of up to 1.5 s later.
+    $script:TickTimer.add_Tick({
+        if ([UsageWidget.Native]::TakeForegroundChanges() -gt 0 -and @($script:Pills | Where-Object { $_.Hidden }).Count -gt 0) {
+            try { Update-Placement } catch { Write-Log "placement error: $($_.Exception.Message)" }
+        }
+    })
+    if (-not [UsageWidget.Native]::WatchForeground()) { Write-Log 'foreground hook unavailable; the pills re-assert topmost every 1.5 s only' }
     $script:PlaceTimer = New-Object Windows.Threading.DispatcherTimer
     $script:PlaceTimer.Interval = [TimeSpan]::FromMilliseconds(1500)
     $script:PlaceTimer.add_Tick({ try { Update-Placement } catch { Write-Log "placement error: $($_.Exception.Message)" } })
@@ -2337,6 +2504,7 @@ function Start-Widget {
         # A long gap between 20-second ticks means the PC slept: refresh at once instead of waiting a full poll.
         if (($nowT - $script:LastRenderTick).TotalSeconds -ge 90) { Write-Log 'resumed after a pause; refreshing'; Start-Refresh $false }
         $script:LastRenderTick = $nowT
+        Write-Heartbeat
         # A pinned card closes by itself 90 s after the pointer last left the pills.
         $over = @($script:Pills | Where-Object { $_.Win.IsMouseOver }).Count -gt 0
         if ($over) { $script:LastPillHover = $nowT }
@@ -2350,10 +2518,13 @@ function Start-Widget {
     Sync-Pills
     Start-Refresh $false
     foreach ($t in @($script:PollTimer, $script:TickTimer, $script:PlaceTimer, $script:RenderTimer)) { $t.Start() }
+    Remove-Item -LiteralPath $script:ExitedPath -Force -ErrorAction SilentlyContinue
+    Write-Heartbeat
     Write-Log "started v$($script:Version) (pid $PID) from $PSScriptRoot"
     [void]$app.Run()
     if ($script:HistoryDirty) { Save-History }
     try { $script:Mutex.ReleaseMutex() } catch { }
 }
 
+if ($script:WatchdogMode) { Invoke-Watchdog; exit 0 }
 Start-Widget

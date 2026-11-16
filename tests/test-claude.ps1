@@ -120,7 +120,7 @@ $tok = $null; $err = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($Widget, [ref]$tok, [ref]$err)
 $want = 'ConvertTo-UtcTime', 'ConvertTo-Unix', 'Get-Left', 'Format-Percent', 'Get-LevelKey', 'Format-Span', 'Get-ResetText', 'Format-LocalTime', 'Format-Rate',
     'Get-PaceInfo', 'Get-PaceView', 'Write-AtomicText', 'Get-PillFitHeight', 'New-History', 'Read-History', 'Add-HistorySample', 'ConvertTo-HistoryJson', 'Get-ClearX', 'Write-Log',
-    'Format-Number', 'Format-Share', 'Test-Snoozed', 'Get-SnoozeUntil', 'Format-SnoozeEnd', 'Find-SignInCli', 'Get-SameWindowSamples', 'Get-DailyBudget', 'Get-ChartGeometry', 'Get-Trend', 'Get-AlertsDue', 'ConvertTo-Settings', 'Add-WindowSample', 'Get-SpendValue', 'Format-DayTime', 'Format-ResetLine', 'Format-UsedShare', 'Get-PaceSummary', 'Get-WindowLabel', 'Invoke-Alerts', 'Get-BindingLimit'
+    'Format-Number', 'Format-Share', 'Test-Snoozed', 'Get-SnoozeUntil', 'Format-SnoozeEnd', 'Find-SignInCli', 'Get-SameWindowSamples', 'Get-DailyBudget', 'Get-ChartGeometry', 'Get-Trend', 'Get-AlertsDue', 'ConvertTo-Settings', 'Add-WindowSample', 'Get-SpendValue', 'Format-DayTime', 'Format-ResetLine', 'Format-UsedShare', 'Get-PaceSummary', 'Get-WindowLabel', 'Invoke-Alerts', 'Get-BindingLimit', 'Read-Heartbeat', 'Get-WatchdogAction'
 $script:AppDir = $Root; $script:LogPath = Join-Path $Root 'widget.log'; $script:HistoryDays = 15; $script:AnchorGapPx = 8; $script:Inv = [Globalization.CultureInfo]::InvariantCulture
 foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $n.Name }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
 foreach ($a2 in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -in '$script:PillXaml', '$script:CardXaml', '$script:Thresholds' }, $true)) { . ([scriptblock]::Create($a2.Extent.Text)) }
@@ -361,6 +361,31 @@ $script:ProductKey = 'claude'
 $si = Find-SignInCli
 $expected = Test-Path (Join-Path $env:USERPROFILE '.local\bin\claude.exe')
 Check 'sign in: Claude uses the official CLI "auth login"' ((-not $expected) -or ($si.args -eq 'auth login' -and $si.exe -like '*claude.exe')) "$($si.exe) $($si.args)"
+
+# ---- watchdog (#23): restart only a widget that is truly stuck, never one the user closed
+$hbF = Join-Path $Root 'heartbeat.txt'
+$hbT = [DateTime]::UtcNow.AddMinutes(-10)
+[IO.File]::WriteAllText($hbF, ('1234 {0}' -f $hbT.Ticks))
+$hb = Read-Heartbeat $hbF
+Check 'heartbeat: pid and UTC time round-trip' ($hb.Pid -eq 1234 -and $hb.Utc -eq $hbT -and $hb.Utc.Kind -eq 'Utc') "$($hb.Pid) $($hb.Utc)"
+[IO.File]::WriteAllText($hbF, 'garbage')
+Check 'heartbeat: unreadable file -> $null' ($null -eq (Read-Heartbeat $hbF) -and $null -eq (Read-Heartbeat (Join-Path $Root 'missing.txt'))) ''
+$nowW = [DateTime]::UtcNow
+$old = @{ Pid = 1; Utc = $nowW.AddSeconds(-400) }; $fresh = @{ Pid = 1; Utc = $nowW.AddSeconds(-30) }
+Check 'watchdog: not running -> start' ((Get-WatchdogAction -LockFree $true -Autostart $true -Now $nowW) -eq 'start') ''
+Check 'watchdog: user chose Exit -> none' ((Get-WatchdogAction -LockFree $true -UserExited $true -Autostart $true -Now $nowW) -eq 'none') ''
+Check 'watchdog: Start with Windows off -> none' ((Get-WatchdogAction -LockFree $true -Autostart $false -Now $nowW) -eq 'none') ''
+Check 'watchdog: stale on both checks -> restart' ((Get-WatchdogAction -Autostart $true -First $old -Second $old -Now $nowW -WaitedWallSeconds 60 -WaitedSeconds 60) -eq 'restart') ''
+Check 'watchdog: fresh heartbeat -> none' ((Get-WatchdogAction -Autostart $true -First $fresh -Second $fresh -Now $nowW -WaitedWallSeconds 60 -WaitedSeconds 60) -eq 'none') ''
+Check 'watchdog: heartbeat moved during the re-check -> none' ((Get-WatchdogAction -Autostart $true -First $old -Second $fresh -Now $nowW -WaitedWallSeconds 60 -WaitedSeconds 60) -eq 'none') ''
+Check 'watchdog: PC slept during the re-check -> none' ((Get-WatchdogAction -Autostart $true -First $old -Second $old -Now $nowW -WaitedWallSeconds 600 -WaitedSeconds 60) -eq 'none') ''
+Check 'watchdog: no heartbeat file -> none' ((Get-WatchdogAction -Autostart $true -First $null -Second $null -Now $nowW) -eq 'none') ''
+
+# ---- pills stay visible over shell overlays (#24)
+foreach ($fn in 'Initialize-Native') { foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $fn }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) } }
+Initialize-Native
+Check 'full screen: Start, Search, Task View and Alt+Tab never hide the pills' ([UsageWidget.Native]::IsShellSurface('Windows.UI.Core.CoreWindow', 'SearchHost') -and [UsageWidget.Native]::IsShellSurface('Windows.UI.Core.CoreWindow', 'StartMenuExperienceHost') -and [UsageWidget.Native]::IsShellSurface('XamlExplorerHostIslandWindow', 'explorer') -and [UsageWidget.Native]::IsShellSurface('MultitaskingViewFrame', '')) ''
+Check 'full screen: a game, video or the lock screen still hides them' (-not [UsageWidget.Native]::IsShellSurface('UnityWndClass', 'game') -and -not [UsageWidget.Native]::IsShellSurface('Chrome_WidgetWin_1', 'chrome') -and -not [UsageWidget.Native]::IsShellSurface('Windows.UI.Core.CoreWindow', 'LockApp')) ''
 
 $results | Format-Table -AutoSize -Wrap | Out-String -Width 220
 "PASS={0} FAIL={1}" -f @($results | Where-Object Result -eq 'PASS').Count, @($results | Where-Object Result -eq 'FAIL').Count
