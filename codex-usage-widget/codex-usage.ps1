@@ -530,6 +530,16 @@ function Find-CodexCli {
     return $found
 }
 
+function Invoke-TreeKill {
+    # Ends a process and every child it started (codex.cmd -> node -> codex.exe), so a hung CLI never leaves orphans (#35).
+    param($Process)
+    try {
+        $tk = [IO.Path]::Combine($env:SystemRoot, 'System32', 'taskkill.exe')
+        if (Test-Path -LiteralPath $tk) { & cmd.exe /d /c ('"{0}" /T /F /PID {1} >nul 2>nul' -f $tk, $Process.Id) }
+    } catch { }
+    try { if (-not $Process.HasExited) { $Process.Kill() } } catch { }
+}
+
 function Invoke-CodexAppServer {
     # Asks the official Codex CLI for the rate limits over its stdio JSON-RPC app-server. The CLI uses and
     # renews its own sign-in; this process never sees a token. Returns the "result" object or $null.
@@ -577,7 +587,7 @@ function Invoke-CodexAppServer {
     } finally {
         if ($null -ne $p) {
             try { $p.StandardInput.Close() } catch { }
-            try { if (-not $p.WaitForExit(3000)) { $p.Kill() } } catch { }
+            try { if (-not $p.WaitForExit(3000)) { Invoke-TreeKill $p } } catch { }
             $p.Dispose()
         }
     }

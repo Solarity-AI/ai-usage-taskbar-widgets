@@ -54,6 +54,8 @@ $r = Run @('-TestResponseFile', (Resp 'zero' ([ordered]@{ five_hour = $null; sev
 Check 'used 0 -> left 100, no session' ($r.json.weekly.left -eq 100 -and $null -eq $r.json.session -and $r.json.limit_reached -eq $false) ''
 $r = Run @('-TestResponseFile', (Resp 'max' ([ordered]@{ seven_day = [ordered]@{ utilization = 100; resets_at = '2026-11-19T02:59:41+00:00' } })), '-Force')
 Check 'used 100 -> left 0, limit_reached' ($r.json.weekly.left -eq 0 -and $r.json.limit_reached -eq $true) ''
+$r = Run @('-TestResponseFile', (Resp 'smax' ([ordered]@{ five_hour = [ordered]@{ utilization = 100; resets_at = '2030-11-13T01:00:00+00:00' }; seven_day = [ordered]@{ utilization = 40; resets_at = '2026-11-19T02:59:41+00:00' } })), '-Force')
+Check '#39: 5-hour window at 100% -> limit_reached (weekly 40%)' ($r.json.session.left -eq 0 -and $r.json.limit_reached -eq $true) $r.raw
 
 $a = Run @('-TestResponseFile', $full, '-Force'); Start-Sleep -Seconds 2
 $b = Run @('-TestResponseFile', $full)
@@ -110,6 +112,8 @@ $m = Run @('-Force')
 Check 'missing sign-in -> auth_missing, no HTTP' ($m.json.error.code -eq 'auth_missing' -and $m.diag -match 'http_calls=0') $m.json.error.message
 $ch = Run @('-Force') (Join-Path $Root 'nope')
 Check 'missing CLAUDE_CONFIG_DIR honored (no fallback)' ($ch.json.error.code -eq 'config_missing') $ch.json.error.message
+$cb = Run @('-Force') 'C:\bad|dir?'
+Check '#33: invalid CLAUDE_CONFIG_DIR path -> config_missing, 1 JSON document' ($cb.lines -eq 1 -and $cb.json.error.code -eq 'config_missing' -and $cb.code -eq 3) "$($cb.raw) | $($cb.diag)"
 Set-Creds $future
 $bad = Join-Path $Root 'bad.json'; [IO.File]::WriteAllText($bad, '<html>', $utf8)
 $br = Run @('-TestResponseFile', $bad, '-Force')
@@ -120,7 +124,8 @@ $tok = $null; $err = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($Widget, [ref]$tok, [ref]$err)
 $want = 'ConvertTo-UtcTime', 'ConvertTo-Unix', 'Get-Left', 'Format-Percent', 'Get-LevelKey', 'Format-Span', 'Get-ResetText', 'Format-LocalTime', 'Format-Rate',
     'Get-PaceInfo', 'Get-PaceView', 'Write-AtomicText', 'Get-PillFitHeight', 'New-History', 'Read-History', 'Add-HistorySample', 'ConvertTo-HistoryJson', 'Get-ClearX', 'Write-Log',
-    'Format-Number', 'Format-Share', 'Test-Snoozed', 'Get-SnoozeUntil', 'Format-SnoozeEnd', 'Find-SignInCli', 'Get-SameWindowSamples', 'Get-DailyBudget', 'Get-ChartGeometry', 'Get-Trend', 'Get-AlertsDue', 'ConvertTo-Settings', 'Add-WindowSample', 'Get-SpendValue', 'Format-DayTime', 'Format-ResetLine', 'Format-UsedShare', 'Get-PaceSummary', 'Get-WindowLabel', 'Invoke-Alerts', 'Get-BindingLimit'
+    'Format-Number', 'Format-Share', 'Test-Snoozed', 'Get-SnoozeUntil', 'Format-SnoozeEnd', 'Find-SignInCli', 'Get-SameWindowSamples', 'Get-DailyBudget', 'Get-ChartGeometry', 'Get-Trend', 'Get-AlertsDue', 'ConvertTo-Settings', 'Add-WindowSample', 'Get-SpendValue', 'Format-DayTime', 'Format-ResetLine', 'Format-UsedShare', 'Get-PaceSummary', 'Get-WindowLabel', 'Invoke-Alerts', 'Get-BindingLimit',
+    'Read-JsonFile', 'Read-AlertsSent', 'Test-AlertSent', 'Get-ClampedPosition'
 $script:AppDir = $Root; $script:LogPath = Join-Path $Root 'widget.log'; $script:HistoryDays = 15; $script:AnchorGapPx = 8; $script:Inv = [Globalization.CultureInfo]::InvariantCulture
 foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $n.Name }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
 foreach ($a2 in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -in '$script:PillXaml', '$script:CardXaml', '$script:Thresholds' }, $true)) { . ([scriptblock]::Create($a2.Extent.Text)) }
@@ -239,6 +244,9 @@ $usageTxt = Join-Path $Root 'usage.txt'
 $fakeUsage = Join-Path $Root 'fake-claude-usage.cmd'
 [IO.File]::WriteAllText($fakeUsage, "@echo off`r`necho %*>>""$calls""`r`ntype ""$usageTxt""`r`n")
 Set-Creds $future
+Remove-Item $calls, (Join-Path $Root 'cache\collector-state.json') -Force -ErrorAction SilentlyContinue
+$off = Run @('-TestHttpStatus', '-2', '-Force') $cfg $fakeUsage
+Check '#34: offline (DNS/connect failure) -> CLI fallback not run, network error' ($off.diag -match 'cli=none' -and -not (Test-Path $calls) -and $off.json.error.code -eq 'network' -and $off.code -ge 2) $off.diag
 Remove-Item (Join-Path $Root 'cache\collector-state.json') -Force -ErrorAction SilentlyContinue
 $u = Run @('-TestHttpStatus', '429', '-Force') $cfg $fakeUsage
 Check '/usage fallback on 429: fresh reading from Claude Code, with notice' ($u.code -eq 0 -and $u.json.source -eq 'cli' -and $u.json.stale -eq $false -and $u.json.weekly.used -eq 29 -and $u.json.session.used -eq 35 -and $u.json.notice -match 'rate limiting') "$($u.diag) | $($u.json.notice)"
@@ -306,6 +314,28 @@ Check 'alerts: on track to run out early (28 h before reset) -> run-out alert' (
 $a5 = @(Get-AlertsDue (& $dat 20 92) $null $aset @{} 'Claude' $nowP)
 Check 'alerts: 5-hour window at 8% left -> alert' ($a5.Count -eq 1 -and $a5[0].title -match '5-hour limit almost used \(8% left\)') ($a5 | ForEach-Object { $_.title })
 $aoff = ConvertTo-Settings ('{"alerts":false}' | ConvertFrom-Json) 60
+# #36 regression: the reported reset drifting across :30 is still the same window (no second alert)
+$datR = { param($u, $reset) [pscustomobject]@{ stale = $false; weekly = [pscustomobject]@{ used = $u; window_seconds = 604800; resets_at = $reset }; session = $null } }
+$dr1 = @(Get-AlertsDue (& $datR 89.5 '2026-11-15T12:35:00Z') $null $aset $sent 'Claude' $nowP)
+$dr2 = @(Get-AlertsDue (& $datR 89.5 '2026-11-15T11:25:00Z') $null $aset $sent 'Claude' $nowP)
+Check '#36: reset drifting 35 min later or earlier -> no repeat alert' ($dr1.Count -eq 0 -and $dr2.Count -eq 0) (($dr1 + $dr2) | ForEach-Object { $_.title })
+$dr3 = @(Get-AlertsDue (& $datR 89 '2026-11-22T12:00:00Z') $null $aset $sent 'Claude' $nowP)
+Check '#36: the next window still alerts' ($dr3.Count -eq 1) ''
+Check '#36: Test-AlertSent matches only the neighbouring hours' ((Test-AlertSent @{ 's:100' = 1 } 's' 101) -and (Test-AlertSent @{ 's:100' = 1 } 's' 99) -and -not (Test-AlertSent @{ 's:100' = 1 } 's' 102) -and -not (Test-AlertSent @{ 'w:100:25' = 1 } 'w' 100 ':10')) ''
+# #29 regression: a damaged alerts.json never stops the widget from starting
+$script:AlertsPath = Join-Path $Root 'alerts.json'
+[IO.File]::WriteAllText($script:AlertsPath, '{"w:1:25":"abc","w:1:10":1795000000,"s:2":null,"s:3":[1,2]}', $utf8)
+$as1 = $null; $ase = $null; try { $as1 = Read-AlertsSent } catch { $ase = $_.Exception.Message }
+Check '#29: bad values in alerts.json skipped, valid ones kept' ($null -eq $ase -and $as1.Count -eq 1 -and $as1['w:1:10'] -eq 1795000000) "$ase $($as1.Keys -join ',')"
+[IO.File]::WriteAllText($script:AlertsPath, '[1,2]', $utf8)
+$as2 = $null; $ase = $null; try { $as2 = Read-AlertsSent } catch { $ase = $_.Exception.Message }
+Check '#29: alerts.json that is not an object -> empty set, no error' ($null -eq $ase -and $as2 -is [hashtable] -and $as2.Count -eq 0) $ase
+# #32 regression: a saved or computed position is pulled back onto its monitor
+$cp1 = Get-ClampedPosition 3000 900 160 40 0 0 1920 1080
+$cp2 = Get-ClampedPosition -200 -50 160 40 0 0 1920 1080
+$cp3 = Get-ClampedPosition 100 200 160 40 0 0 1920 1080
+$cp4 = Get-ClampedPosition 5000 5000 160 40 0 0 0 0
+Check '#32: off-screen pill clamped onto the monitor; inside or unknown monitor unchanged' ($cp1.x -eq 1760 -and $cp1.y -eq 900 -and $cp2.x -eq 0 -and $cp2.y -eq 0 -and $cp3.x -eq 100 -and $cp3.y -eq 200 -and $cp4.x -eq 5000) "$($cp1.x),$($cp1.y) $($cp2.x),$($cp2.y)"
 Check 'alerts: off, or stale data -> nothing' (@(Get-AlertsDue (& $dat 95) $fastP $aoff @{} 'Claude' $nowP).Count -eq 0 -and @(Get-AlertsDue (& $dat 95 95 $true) $fastP $aset @{} 'Claude' $nowP).Count -eq 0) ''
 
 # ---- today's budget (local midnight baseline)
@@ -400,6 +430,29 @@ $n2 = Stop-ProcessTree $t2.root.Id -SkipRoot; Start-Sleep -Milliseconds 700
 $alive2 = @($t2.kids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
 Check 'collector timeout: child left by an exited collector stopped' ($t2.kids.Count -ge 1 -and $t2.root.HasExited -and $alive2.Count -eq 0) "kids=$($t2.kids -join ',') alive=$($alive2 -join ',')"
 foreach ($id in @($t1.kids + $t2.kids)) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
+
+# ---- QA bug hunt 2026-11-16 (#30, #31, #35, #37, #38): code paths that need Windows, checked in the source
+$colSrc = [IO.File]::ReadAllText($Collector)
+$cxSrc = [IO.File]::ReadAllText((Join-Path (Split-Path $Dir) 'codex-usage-widget\codex-usage.ps1'))
+$insSrc = [IO.File]::ReadAllText((Join-Path $Dir 'install.ps1')); $unSrc = [IO.File]::ReadAllText((Join-Path $Dir 'uninstall.ps1')); $wdSrc = [IO.File]::ReadAllText((Join-Path $Dir 'watchdog.ps1'))
+Check '#35: collectors end the whole CLI tree on timeout (taskkill /T)' ($colSrc -match 'Invoke-TreeKill \$p' -and $colSrc -match '/T /F /PID' -and $cxSrc -match 'WaitForExit\(3000\)\) \{ Invoke-TreeKill \$p' -and $cxSrc -match '/T /F /PID') ''
+Check '#35: widget tick error stops the collector tree (Reset-Refresh)' ($src -match '(?s)function Reset-Refresh \{.*?Stop-ProcessTree' -and $src -match 'catch \{[^}]*Reset-Refresh') ''
+Check '#35: watchdog replace ends each widget tree' ($wdSrc -match '/T /F /PID') ''
+Check '#37: lost mouse capture ends a drag (LostMouseCapture -> Complete-Drag)' ($src -match '(?s)add_LostMouseCapture\(\{.*?Complete-Drag') ''
+Check '#30: reinstall keeps Start with Windows off' ($insSrc -match '\$HadShortcut\s*=\s*Test-Path' -and $insSrc -match 'if \(\$WasInstalled -and -not \$HadShortcut\)') ''
+Check '#31: uninstaller task may start on battery' ($unSrc -match 'Register-ScheduledTask[^\n]*-Settings \$settings' -and $unSrc -match 'AllowStartIfOnBatteries') ''
+# #38 regression: a failed process query never starts a second widget
+foreach ($f in $wdAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -in 'Invoke-Watchdog', 'Write-WatchdogLog' }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
+$saveAppDir = $script:AppDir; $saveLad = $env:LOCALAPPDATA
+$wdLad = Join-Path $Root 'wd-lad'; [void](New-Item -ItemType Directory -Path (Join-Path $wdLad 'ClaudeUsageWidget') -Force)
+[IO.File]::WriteAllText((Join-Path $wdLad 'ClaudeUsageWidget\claude-usage-widget.ps1'), '#', $utf8)
+$script:AppName = 'ClaudeUsageWidget'; $script:WidgetFile = 'claude-usage-widget.ps1'; $script:ProductName = 'Claude'; $script:StaleSeconds = 180
+$script:WdStarts = 0
+function Get-CimInstance { throw 'WMI is not available (simulated)' }
+function Start-Process { $script:WdStarts++ }
+try { $env:LOCALAPPDATA = $wdLad; Invoke-Watchdog } finally { $env:LOCALAPPDATA = $saveLad; Remove-Item function:Get-CimInstance, function:Start-Process; $script:AppDir = $saveAppDir }
+$wdLog = Join-Path $wdLad 'ClaudeUsageWidget\watchdog.log'
+Check '#38: watchdog process query failed -> no start, logged, no state change' ($script:WdStarts -eq 0 -and (Test-Path $wdLog) -and ([IO.File]::ReadAllText($wdLog) -match 'skipped this check') -and -not (Test-Path (Join-Path $wdLad 'ClaudeUsageWidget\watchdog-state'))) "starts=$($script:WdStarts)"
 
 # ---- pills stay visible over shell overlays (#24)
 foreach ($fn in 'Initialize-Native') { foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $fn }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) } }
