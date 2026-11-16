@@ -304,6 +304,17 @@ function Get-PaceSummary {
     return [pscustomobject]$s
 }
 
+function Get-BindingLimit {
+    # The limit that runs out first: the 5-hour session when less of it is left than of the weekly limit
+    # (and it hasn't reset yet), else the weekly limit. Per-model limits apply to one model only and never bind.
+    param($Data, $Now = [DateTime]::UtcNow)
+    $w = $Data.weekly; $s = $Data.session
+    $wl = Get-Left $w; $sl = Get-Left $s
+    $sOk = ($null -ne $sl -and $null -ne $s -and $null -ne (ConvertTo-UtcTime $s.resets_at) -and (ConvertTo-UtcTime $s.resets_at) -gt (ConvertTo-UtcTime $Now))
+    if ($sOk -and ($null -eq $wl -or $sl -lt $wl)) { return [pscustomobject]@{ kind = 'session'; window = $s; left = $sl } }
+    return [pscustomobject]@{ kind = 'weekly'; window = $w; left = $wl }
+}
+
 function Get-WindowLabel {
     # Row title for a limit window: "Weekly · all models", "Current session · 5 hours", "Weekly · Fable".
     param([string]$Kind, [string]$Name = $null, $WindowSeconds = $null, [string]$Product = 'claude')
@@ -1942,7 +1953,8 @@ function Update-View {
         }
 
         $weekly = $d.weekly
-        $left = Get-Left $weekly
+        $bind = Get-BindingLimit $d $now                                  # pill and hero follow the limit that runs out first
+        $left = $bind.left
         $level = Get-LevelKey $left
         $stale = ($d.stale -eq $true) -or ($null -ne $script:CollectorFailure)
         $authCodes = @('auth_expired', 'auth_missing', 'auth_unreadable', 'auth_malformed', 'auth_mode_unsupported', 'http_401', 'http_403')
@@ -1965,14 +1977,15 @@ function Update-View {
         if ($null -eq $weekly) {
             $subRight = $(if (@($d.reset_passed) -contains 'weekly') { 'reset, refreshing' } else { 'unavailable' })
         } elseif (-not $subRight) { $subRight = 'reset unknown' }
+        if ($bind.kind -eq 'session') { $subRight = 'session ' + (Get-ResetText $bind.window.resets_at $now) }
         if ($needsSignIn) { $subRight = 'sign in needed'; $st.subBrush = $T.warnB }
-        elseif (-not $stale -and $script:Settings.pill -eq 'budget' -and $null -ne $budget) {
+        elseif (-not $stale -and $bind.kind -eq 'weekly' -and $script:Settings.pill -eq 'budget' -and $null -ne $budget) {
             $subRight = ('today {0} of {1}%' -f (Format-Share $budget.used_today), (Format-Share $budget.budget))
             if ($budget.over) { $st.subBrush = $T.warnB }
         }
         if ($script:Refreshing -and $script:ManualRefresh) { $subRight = 'refreshing' + [char]0x2026; $st.subBrush = $T.pillDimB }
         $st.sub = "$tag $dot $subRight"
-        $st.a11y = ('{0}: {1} of the weekly limit left; {2}' -f $script:WindowTitle, $pct, $subRight)
+        $st.a11y = ('{0}: {1} of the {2} limit left; {3}' -f $script:WindowTitle, $pct, $(if ($bind.kind -eq 'session') { '5-hour session' } else { 'weekly' }), $subRight)
         $script:PillState = $st
         foreach ($p in @($script:Pills)) { Update-PillVisual $p }
 
@@ -1980,7 +1993,8 @@ function Update-View {
         $ui.CardHero.Text = $pct
         $ui.CardHero.Foreground = $T[$level + 'B']
         $exhausted = ($null -ne $left -and $left -le 0)
-        $ui.CardHeroLabel.Text = $(if ($null -eq $left) { 'weekly data unavailable' }
+        $ui.CardHeroLabel.Text = $(if ($bind.kind -eq 'session') { ('left in this {0}-hour session' -f [Math]::Round([double]$bind.window.window_seconds / 3600.0)) }
+                                   elseif ($null -eq $left) { 'weekly data unavailable' }
                                    elseif ($tag -eq 'claude') { "left this week $dot all models" } else { 'left this week' })
         if ($d.plan) {
             $ui.PlanText.Text = (Get-Culture).TextInfo.ToTitleCase(([string]$d.plan).ToLowerInvariant())
