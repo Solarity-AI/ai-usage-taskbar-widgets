@@ -4,9 +4,8 @@
 
 .DESCRIPTION
     Installs codex-usage.ps1, codex-usage-widget.ps1, install.ps1 and uninstall.ps1 from this script's folder into
-    %LOCALAPPDATA%\CodexUsageWidget, creates/updates the "Codex Usage Widget.lnk" Startup shortcut and the
-    per-user "Codex Usage Widget watchdog" scheduled task (every 5 minutes it starts the widget again if it
-    crashed or stopped responding; never after you chose Exit), then restarts only the Codex widget. Saved placement (settings.json), history and the usage cache are
+    %LOCALAPPDATA%\CodexUsageWidget, creates/updates only the "Codex Usage Widget.lnk" Startup shortcut,
+    then restarts only the Codex widget. Saved placement (settings.json), history and the usage cache are
     kept. Files that are already identical are not rewritten.
 
     Sandboxed shells: some desktop apps run their built-in terminals with a private, redirected
@@ -27,7 +26,7 @@ param(
 $ErrorActionPreference = 'Stop'
 if ($TaskLog) { try { Start-Transcript -LiteralPath $TaskLog -Force | Out-Null } catch { } }
 
-$Package      = @('codex-usage.ps1', 'codex-usage-widget.ps1', 'install.ps1', 'uninstall.ps1')
+$Package      = @('codex-usage.ps1', 'codex-usage-widget.ps1', 'install.ps1', 'uninstall.ps1', 'watchdog.ps1')
 $SourceDir    = $PSScriptRoot
 $InstallDir   = Join-Path $env:LOCALAPPDATA 'CodexUsageWidget'
 $WidgetPath   = Join-Path $InstallDir 'codex-usage-widget.ps1'
@@ -35,8 +34,8 @@ $Collector    = Join-Path $InstallDir 'codex-usage.ps1'
 $ShortcutPath = Join-Path ([Environment]::GetFolderPath('Startup')) 'Codex Usage Widget.lnk'
 $StartMenuPath = Join-Path ([Environment]::GetFolderPath('Programs')) 'Codex Usage Widget.lnk'
 $PsExe        = Join-Path $PSHOME 'powershell.exe'
-$ShortcutArgs = ('-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}"' -f $WidgetPath)
 $WatchdogTask = 'Codex Usage Widget watchdog'
+$ShortcutArgs = ('-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}"' -f $WidgetPath)
 
 # Under -TaskLog the output goes to a transcript, which splits -NoNewline segments: write whole lines there.
 function Write-Tag  { param([string]$Tag, [string]$Color, [string]$Text) if ($TaskLog) { Write-Host ($Tag + $Text) } else { Write-Host $Tag -ForegroundColor $Color -NoNewline; Write-Host $Text } }
@@ -112,7 +111,7 @@ function Invoke-OutsideSandbox {
 function Get-WidgetProcesses {
     # Only Windows PowerShell processes running a codex-usage-widget.ps1 script (never other PowerShell windows, never the other widget).
     @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine -match '(?i)[\\/"\s]codex-usage-widget\.ps1' -and $_.CommandLine -notmatch '(?i)\s-Watchdog\b' })
+        Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine -match '(?i)[\\/"\s]codex-usage-widget\.ps1' })
 }
 
 function Test-WidgetWindow {
@@ -212,7 +211,7 @@ foreach ($t in $stale) { Remove-Item -LiteralPath $t.FullName -Force -ErrorActio
 if ($stale.Count -gt 0) { Write-Ok ('Removed {0} leftover temp file(s)' -f $stale.Count) }
 
 # ------------------------------------------------------------------ 4
-Write-Step 4 'Creating the Startup shortcut (Codex Usage Widget.lnk)'
+Write-Step 4 'Creating the Startup shortcut (Codex Usage Widget.lnk) and the watchdog task'
 $shell = New-Object -ComObject WScript.Shell
 try {
     $lnk = $shell.CreateShortcut($ShortcutPath)
@@ -240,19 +239,22 @@ try {
         Write-Ok "Start menu: $StartMenuPath"
     } catch { Write-Note ('Start menu entry not created: {0}' -f $_.Exception.Message) }
 } finally { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell) }
-# Watchdog: a per-user task (no admin) that runs the widget with -Watchdog every 5 minutes, through
-# conhost --headless so no window flashes. The widget decides what to do (see Invoke-Watchdog).
+
+# Watchdog: a per-user task (no admin) that every 5 minutes restarts the widget if it died or hung, unless you chose
+# Exit or turned off Start with Windows. Windows 11 runs it in a headless console, so no window flashes.
 try {
+    $wdArgs = ('-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}"' -f (Join-Path $InstallDir 'watchdog.ps1'))
     $conhost = Join-Path $env:SystemRoot 'System32\conhost.exe'
-    $wdArgs = ('-NoProfile -ExecutionPolicy Bypass -File "{0}" -Watchdog' -f $WidgetPath)
-    $action = if (Test-Path -LiteralPath $conhost) { New-ScheduledTaskAction -Execute $conhost -Argument ('--headless "{0}" {1}' -f $PsExe, $wdArgs) -WorkingDirectory $InstallDir }
-              else { New-ScheduledTaskAction -Execute $PsExe -Argument ('-WindowStyle Hidden ' + $wdArgs) -WorkingDirectory $InstallDir }
-    $trigger = New-ScheduledTaskTrigger -Once -At ([DateTime]::Now.AddMinutes(1)) -RepetitionInterval (New-TimeSpan -Minutes 5)
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 3)
-    $principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
-    [void](Register-ScheduledTask -TaskName $WatchdogTask -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'Starts the Codex usage taskbar widget again if it crashed or stopped responding. Never after you chose Exit. Removed by uninstall.ps1.' -Force)
+    if ([Environment]::OSVersion.Version.Build -ge 22000 -and (Test-Path -LiteralPath $conhost)) {
+        $wdAction = New-ScheduledTaskAction -Execute $conhost -Argument ('--headless "{0}" {1}' -f $PsExe, $wdArgs) -WorkingDirectory $InstallDir
+    } else {
+        $wdAction = New-ScheduledTaskAction -Execute $PsExe -Argument $wdArgs -WorkingDirectory $InstallDir
+    }
+    $wdTrigger = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(1)) -RepetitionInterval (New-TimeSpan -Minutes 5)
+    $wdSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 2)
+    [void](Register-ScheduledTask -TaskName $WatchdogTask -Action $wdAction -Trigger $wdTrigger -Settings $wdSettings -Description 'Restarts the Codex usage widget if it stopped or hung (not after Exit or with Start with Windows off). Removed by uninstall.ps1.' -Force)
     Write-Ok "Watchdog task: $WatchdogTask (every 5 minutes)"
-} catch { Write-Note ('Watchdog task not created ({0}); the widget still starts at sign-in.' -f $_.Exception.Message) }
+} catch { Write-Note ('Watchdog task not created: {0}' -f $_.Exception.Message) }
 
 # ------------------------------------------------------------------ 5
 Write-Step 5 'Starting the Codex widget'

@@ -36,25 +36,18 @@ $script:MarkText      = 'C'
 
 # ---------------------------------------------------------------- single instance / STA
 
-# -Watchdog: run by the "<Product> Usage Widget watchdog" scheduled task every 5 minutes. It starts the widget
-# when it is not running (crashed, or closed by Windows after a hang) and restarts it when it stopped
-# responding; it never starts it after the user chose Exit or turned Start with Windows off.
-$script:WatchdogMode = ($args -contains '-Watchdog')
-
-if (-not $script:WatchdogMode -and [Threading.Thread]::CurrentThread.GetApartmentState() -ne [Threading.ApartmentState]::STA) {
+if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne [Threading.ApartmentState]::STA) {
     Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -WindowStyle Hidden -ArgumentList @(
         '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ('"{0}"' -f $PSCommandPath))
     exit 0
 }
 
-if (-not $script:WatchdogMode) {
-    $script:CreatedNew = $false
-    $script:Mutex = New-Object System.Threading.Mutex($true, ('Local\' + $script:AppName), [ref]$script:CreatedNew)
-    if (-not $script:CreatedNew) {
-        $owned = $false
-        try { $owned = $script:Mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
-        if (-not $owned) { exit 0 }
-    }
+$script:CreatedNew = $false
+$script:Mutex = New-Object System.Threading.Mutex($true, ('Local\' + $script:AppName), [ref]$script:CreatedNew)
+if (-not $script:CreatedNew) {
+    $owned = $false
+    try { $owned = $script:Mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
+    if (-not $owned) { exit 0 }
 }
 
 # ---------------------------------------------------------------- constants
@@ -64,13 +57,12 @@ $script:SettingsPath  = Join-Path $script:AppDir 'settings.json'
 $script:HistoryPath   = Join-Path $script:AppDir 'history.json'
 $script:AlertsPath    = Join-Path $script:AppDir 'alerts.json'
 $script:LogPath       = Join-Path $script:AppDir 'widget.log'
-$script:HeartbeatPath = Join-Path $script:AppDir 'heartbeat.txt'     # "<pid> <UTC ticks>", rewritten every 20 s
-$script:ExitedPath    = Join-Path $script:AppDir 'exited-by-user.txt' # the user chose Exit: the watchdog leaves it closed
-$script:HeartbeatStaleSeconds = 180
+$script:HeartbeatPath = Join-Path $script:AppDir 'heartbeat'        # rewritten by the UI thread; watchdog.ps1 replaces a hung widget
+$script:ExitMarkerPath = Join-Path $script:AppDir 'exited-by-user'  # left by Exit: the watchdog keeps the widget closed
 $script:CollectorPath = Join-Path $PSScriptRoot $script:CollectorName
 $script:UninstallPath = Join-Path $PSScriptRoot 'uninstall.ps1'
 $script:ShortcutPath  = Join-Path ([Environment]::GetFolderPath('Startup')) ('{0} Usage Widget.lnk' -f $script:ProductName)
-$script:Version       = '1.1.0'          # release version (tools\package.ps1 and the release workflow check it)
+$script:Version       = '1.3.0'          # release version (tools\package.ps1 and the release workflow check it)
 $script:HomeUrl       = 'https://solarity-ai.github.io/ai-usage-taskbar-widgets/'
 $script:CollectorTimeoutSeconds = 120   # the collector may run the official CLI
 $script:AnchorGapPx   = 8               # physical pixels between neighbouring pills / the notification area
@@ -1602,6 +1594,24 @@ function Sync-Pills {
 
 # ---------------------------------------------------------------- data refresh (off the UI thread)
 
+function Stop-ProcessTree {
+    # Stops a process and every descendant (the collector may run the official CLI, which runs its own children).
+    # Works after the root has exited too: orphaned children still name it as their parent.
+    param([int]$RootId, [switch]$SkipRoot)   # -SkipRoot: the root already exited; stop only what it left behind
+    $all = @(Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId -ErrorAction SilentlyContinue)
+    $ids = New-Object System.Collections.ArrayList
+    [void]$ids.Add($RootId)
+    for ($i = 0; $i -lt $ids.Count; $i++) {
+        foreach ($c in $all) { if ($c.ParentProcessId -eq $ids[$i] -and $c.ProcessId -ne $PID -and -not $ids.Contains([int]$c.ProcessId)) { [void]$ids.Add([int]$c.ProcessId) } }
+    }
+    for ($i = $ids.Count - 1; $i -ge $(if ($SkipRoot) { 1 } else { 0 }); $i--) { try { Stop-Process -Id $ids[$i] -Force -ErrorAction Stop } catch { } }
+    return $ids.Count
+}
+
+function Write-Heartbeat {
+    try { [IO.File]::WriteAllText($script:HeartbeatPath, [DateTime]::UtcNow.ToString('o')) } catch { }
+}
+
 function Start-Refresh {
     param([bool]$Force = $false)
     if ($null -ne $script:Proc) { return }           # no overlapping refreshes
@@ -1652,9 +1662,10 @@ function Complete-Refresh {
     $p = $script:Proc
     if ($null -eq $p) { return }
     $elapsed = ([DateTime]::UtcNow - $script:ProcStarted).TotalSeconds
-    if (-not $p.HasExited) {
+    # A child left holding the output pipe keeps ProcOut open after the collector exits: time that out too.
+    if (-not $p.HasExited -or -not $script:ProcOut.IsCompleted) {
         if ($elapsed -lt $script:CollectorTimeoutSeconds) { return }
-        Stop-ProcessTree $p
+        try { [void](Stop-ProcessTree $p.Id -SkipRoot:$p.HasExited) } catch { }
         try { $p.Dispose() } catch { }
         $script:Proc = $null; $script:Refreshing = $false
         $script:CollectorFailure = 'The local collector timed out.'
@@ -1662,7 +1673,6 @@ function Complete-Refresh {
         Update-View
         return
     }
-    if (-not $script:ProcOut.IsCompleted) { return }
     $out = $script:ProcOut.Result
     $code = $p.ExitCode
     $p.Dispose()
@@ -2328,103 +2338,10 @@ function Initialize-Menu {
     $m.MenuExit.add_Click({ Stop-Widget })
 }
 
-function Stop-ProcessTree {
-    # Stops a collector and everything it started (the official CLI, node), so a hung child never outlives it.
-    param($Process)
-    $id = 0
-    try { $id = $Process.Id } catch { }
-    if ($id -gt 0) {
-        try {
-            $psi = New-Object Diagnostics.ProcessStartInfo (Join-Path $env:SystemRoot 'System32\taskkill.exe'), ('/PID {0} /T /F' -f $id)
-            $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
-            $k = [Diagnostics.Process]::Start($psi)
-            [void]$k.WaitForExit(3000)
-            $k.Dispose()
-        } catch { }
-    }
-    try { if (-not $Process.HasExited) { $Process.Kill() } } catch { }
-}
-
-function Write-Heartbeat {
-    # Proves to the watchdog that the UI thread is still running (written from a UI timer).
-    try {
-        if (-not (Test-Path -LiteralPath $script:AppDir)) { [void](New-Item -ItemType Directory -Path $script:AppDir -Force) }
-        [IO.File]::WriteAllText($script:HeartbeatPath, ('{0} {1}' -f $PID, [DateTime]::UtcNow.Ticks))
-    } catch { }
-}
-
-function Read-Heartbeat {
-    # Returns @{ Pid; Utc } from the heartbeat file, or $null when it is missing or unreadable.
-    param([string]$Path)
-    try {
-        $parts = ([IO.File]::ReadAllText($Path)).Trim() -split '\s+'
-        if ($parts.Count -ne 2) { return $null }
-        return @{ Pid = [int]$parts[0]; Utc = New-Object DateTime ([long]$parts[1]), ([DateTimeKind]::Utc) }
-    } catch { return $null }
-}
-
-function Get-WatchdogAction {
-    # What a watchdog run does. 'start': the widget is not running. 'restart': it holds its lock but has not
-    # written a heartbeat for StaleSeconds, also across a WaitSeconds re-check (a widget that just woke from
-    # sleep writes one at once). 'none': leave it alone (user chose Exit, Start with Windows is off, alive,
-    # no heartbeat to judge by, or the PC slept during the re-check).
-    param([bool]$LockFree, [bool]$UserExited, [bool]$Autostart, $First, $Second, [DateTime]$Now,
-        [double]$WaitedWallSeconds, [double]$WaitedSeconds, [int]$StaleSeconds = 180)
-    if ($UserExited -or -not $Autostart) { return 'none' }
-    if ($LockFree) { return 'start' }
-    if ($null -eq $First -or $null -eq $Second) { return 'none' }
-    if ($Second.Pid -ne $First.Pid -or $Second.Utc -ne $First.Utc) { return 'none' }
-    if (($WaitedWallSeconds - $WaitedSeconds) -gt 30) { return 'none' }
-    if (($Now - $Second.Utc).TotalSeconds -lt $StaleSeconds) { return 'none' }
-    return 'restart'
-}
-
-function Start-WidgetProcess {
-    Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -WindowStyle Hidden -ArgumentList @(
-        '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ('"{0}"' -f $PSCommandPath))
-}
-
-function Invoke-Watchdog {
-    $exited = Test-Path -LiteralPath $script:ExitedPath
-    $auto = Test-Path -LiteralPath $script:ShortcutPath
-    if ($exited -or -not $auto) { return }
-    $mutex = New-Object System.Threading.Mutex($false, ('Local\' + $script:AppName))
-    try {
-        $free = $false
-        try { $free = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $free = $true }
-        if ($free) {
-            $mutex.ReleaseMutex()
-            Write-Log 'watchdog: the widget was not running; starting it'
-            Start-WidgetProcess
-            return
-        }
-        $first = Read-Heartbeat $script:HeartbeatPath
-        if ($null -eq $first -or ([DateTime]::UtcNow - $first.Utc).TotalSeconds -lt $script:HeartbeatStaleSeconds) { return }
-        $wallStart = [DateTime]::UtcNow
-        $sw = [Diagnostics.Stopwatch]::StartNew()
-        Start-Sleep -Seconds 60
-        $second = Read-Heartbeat $script:HeartbeatPath
-        $action = Get-WatchdogAction -LockFree $false -UserExited (Test-Path -LiteralPath $script:ExitedPath) -Autostart $true `
-            -First $first -Second $second -Now ([DateTime]::UtcNow) -WaitedWallSeconds ([DateTime]::UtcNow - $wallStart).TotalSeconds `
-            -WaitedSeconds $sw.Elapsed.TotalSeconds -StaleSeconds $script:HeartbeatStaleSeconds
-        if ($action -ne 'restart') { return }
-        $hung = Get-Process -Id $second.Pid -ErrorAction SilentlyContinue
-        if ($null -eq $hung -or $hung.ProcessName -ne 'powershell') { return }
-        Write-Log ('watchdog: the widget (pid {0}) has not responded since {1:s}Z; restarting it' -f $second.Pid, $second.Utc)
-        try { $hung | Stop-Process -Force -ErrorAction Stop } catch { Write-Log "watchdog: could not stop it: $($_.Exception.Message)"; return }
-        $got = $false
-        try { $got = $mutex.WaitOne(15000) } catch [System.Threading.AbandonedMutexException] { $got = $true }
-        if (-not $got) { Write-Log 'watchdog: the old widget still holds its lock; trying again next run'; return }
-        $mutex.ReleaseMutex()
-        Start-WidgetProcess
-    } finally { $mutex.Dispose() }
-}
-
 function Stop-Widget {
     foreach ($t in @($script:PollTimer, $script:TickTimer, $script:PlaceTimer, $script:RenderTimer, $script:HideTimer)) { if ($null -ne $t) { $t.Stop() } }
-    # The user chose Exit: the watchdog must not start the widget again (a normal start clears this).
-    try { [IO.File]::WriteAllText($script:ExitedPath, [DateTime]::UtcNow.ToString('o')) } catch { }
-    if ($null -ne $script:Proc) { Stop-ProcessTree $script:Proc }
+    if ($null -ne $script:Proc) { try { [void](Stop-ProcessTree $script:Proc.Id) } catch { } }
+    try { [IO.File]::WriteAllText($script:ExitMarkerPath, 'Exit chosen in the menu') } catch { }   # the watchdog keeps it closed
     if ($script:HistoryDirty) { Save-History }
     try { $script:CardWindow.Close() } catch { }
     foreach ($p in @($script:Pills)) { try { $p.Win.Close() } catch { } }
@@ -2521,17 +2438,16 @@ function Start-Widget {
     $script:LastRenderTick = [DateTime]::UtcNow
     $script:LastPillHover = [DateTime]::UtcNow
 
+    Remove-Item -LiteralPath $script:ExitMarkerPath -Force -ErrorAction SilentlyContinue   # started again: the watchdog may restart it
+    Write-Heartbeat
     Update-View
     Sync-Pills
     Start-Refresh $false
     foreach ($t in @($script:PollTimer, $script:TickTimer, $script:PlaceTimer, $script:RenderTimer)) { $t.Start() }
-    Remove-Item -LiteralPath $script:ExitedPath -Force -ErrorAction SilentlyContinue
-    Write-Heartbeat
     Write-Log "started v$($script:Version) (pid $PID) from $PSScriptRoot"
     [void]$app.Run()
     if ($script:HistoryDirty) { Save-History }
     try { $script:Mutex.ReleaseMutex() } catch { }
 }
 
-if ($script:WatchdogMode) { Invoke-Watchdog; exit 0 }
 Start-Widget

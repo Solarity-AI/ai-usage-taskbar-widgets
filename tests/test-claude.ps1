@@ -120,7 +120,7 @@ $tok = $null; $err = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($Widget, [ref]$tok, [ref]$err)
 $want = 'ConvertTo-UtcTime', 'ConvertTo-Unix', 'Get-Left', 'Format-Percent', 'Get-LevelKey', 'Format-Span', 'Get-ResetText', 'Format-LocalTime', 'Format-Rate',
     'Get-PaceInfo', 'Get-PaceView', 'Write-AtomicText', 'Get-PillFitHeight', 'New-History', 'Read-History', 'Add-HistorySample', 'ConvertTo-HistoryJson', 'Get-ClearX', 'Write-Log',
-    'Format-Number', 'Format-Share', 'Test-Snoozed', 'Get-SnoozeUntil', 'Format-SnoozeEnd', 'Find-SignInCli', 'Get-SameWindowSamples', 'Get-DailyBudget', 'Get-ChartGeometry', 'Get-Trend', 'Get-AlertsDue', 'ConvertTo-Settings', 'Add-WindowSample', 'Get-SpendValue', 'Format-DayTime', 'Format-ResetLine', 'Format-UsedShare', 'Get-PaceSummary', 'Get-WindowLabel', 'Invoke-Alerts', 'Get-BindingLimit', 'Read-Heartbeat', 'Get-WatchdogAction'
+    'Format-Number', 'Format-Share', 'Test-Snoozed', 'Get-SnoozeUntil', 'Format-SnoozeEnd', 'Find-SignInCli', 'Get-SameWindowSamples', 'Get-DailyBudget', 'Get-ChartGeometry', 'Get-Trend', 'Get-AlertsDue', 'ConvertTo-Settings', 'Add-WindowSample', 'Get-SpendValue', 'Format-DayTime', 'Format-ResetLine', 'Format-UsedShare', 'Get-PaceSummary', 'Get-WindowLabel', 'Invoke-Alerts', 'Get-BindingLimit'
 $script:AppDir = $Root; $script:LogPath = Join-Path $Root 'widget.log'; $script:HistoryDays = 15; $script:AnchorGapPx = 8; $script:Inv = [Globalization.CultureInfo]::InvariantCulture
 foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $n.Name }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
 foreach ($a2 in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -in '$script:PillXaml', '$script:CardXaml', '$script:Thresholds' }, $true)) { . ([scriptblock]::Create($a2.Extent.Text)) }
@@ -362,24 +362,44 @@ $si = Find-SignInCli
 $expected = Test-Path (Join-Path $env:USERPROFILE '.local\bin\claude.exe')
 Check 'sign in: Claude uses the official CLI "auth login"' ((-not $expected) -or ($si.args -eq 'auth login' -and $si.exe -like '*claude.exe')) "$($si.exe) $($si.args)"
 
-# ---- watchdog (#23): restart only a widget that is truly stuck, never one the user closed
-$hbF = Join-Path $Root 'heartbeat.txt'
-$hbT = [DateTime]::UtcNow.AddMinutes(-10)
-[IO.File]::WriteAllText($hbF, ('1234 {0}' -f $hbT.Ticks))
-$hb = Read-Heartbeat $hbF
-Check 'heartbeat: pid and UTC time round-trip' ($hb.Pid -eq 1234 -and $hb.Utc -eq $hbT -and $hb.Utc.Kind -eq 'Utc') "$($hb.Pid) $($hb.Utc)"
-[IO.File]::WriteAllText($hbF, 'garbage')
-Check 'heartbeat: unreadable file -> $null' ($null -eq (Read-Heartbeat $hbF) -and $null -eq (Read-Heartbeat (Join-Path $Root 'missing.txt'))) ''
-$nowW = [DateTime]::UtcNow
-$old = @{ Pid = 1; Utc = $nowW.AddSeconds(-400) }; $fresh = @{ Pid = 1; Utc = $nowW.AddSeconds(-30) }
-Check 'watchdog: not running -> start' ((Get-WatchdogAction -LockFree $true -Autostart $true -Now $nowW) -eq 'start') ''
-Check 'watchdog: user chose Exit -> none' ((Get-WatchdogAction -LockFree $true -UserExited $true -Autostart $true -Now $nowW) -eq 'none') ''
-Check 'watchdog: Start with Windows off -> none' ((Get-WatchdogAction -LockFree $true -Autostart $false -Now $nowW) -eq 'none') ''
-Check 'watchdog: stale on both checks -> restart' ((Get-WatchdogAction -Autostart $true -First $old -Second $old -Now $nowW -WaitedWallSeconds 60 -WaitedSeconds 60) -eq 'restart') ''
-Check 'watchdog: fresh heartbeat -> none' ((Get-WatchdogAction -Autostart $true -First $fresh -Second $fresh -Now $nowW -WaitedWallSeconds 60 -WaitedSeconds 60) -eq 'none') ''
-Check 'watchdog: heartbeat moved during the re-check -> none' ((Get-WatchdogAction -Autostart $true -First $old -Second $fresh -Now $nowW -WaitedWallSeconds 60 -WaitedSeconds 60) -eq 'none') ''
-Check 'watchdog: PC slept during the re-check -> none' ((Get-WatchdogAction -Autostart $true -First $old -Second $old -Now $nowW -WaitedWallSeconds 600 -WaitedSeconds 60) -eq 'none') ''
-Check 'watchdog: no heartbeat file -> none' ((Get-WatchdogAction -Autostart $true -First $null -Second $null -Now $nowW) -eq 'none') ''
+# ---- watchdog (#23): a widget that died or hung comes back; never after Exit, Start with Windows off or uninstall
+$src = [IO.File]::ReadAllText($Widget)
+$wdAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $Dir 'watchdog.ps1'), [ref]$tok, [ref]$err)
+foreach ($f in $wdAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-WatchdogAction' }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
+$ok = @{ Installed = $true; StartupOn = $true; ExitedByUser = $false; Running = $true; HeartbeatAge = 20; Responding = $true; WasStale = $false }
+function Wd($over) { $a = $ok.Clone(); foreach ($k in $over.Keys) { $a[$k] = $over[$k] }; (Get-WatchdogAction @a).action }
+Check 'watchdog: widget gone -> start it' ((Wd @{ Running = $false }) -eq 'start') (Wd @{ Running = $false })
+Check 'watchdog: healthy widget -> nothing' ((Wd @{}) -eq 'none') (Wd @{})
+Check 'watchdog: after Exit -> stays closed' ((Wd @{ Running = $false; ExitedByUser = $true }) -eq 'none') ''
+Check 'watchdog: Start with Windows off -> stays closed' ((Wd @{ Running = $false; StartupOn = $false }) -eq 'none') ''
+Check 'watchdog: uninstalled -> nothing' ((Wd @{ Running = $false; Installed = $false }) -eq 'none') ''
+Check 'watchdog: stale heartbeat once after sleep, responding -> wait (no restart)' ((Wd @{ HeartbeatAge = 3600 }) -eq 'none' -and (& { $a = $ok.Clone(); $a.HeartbeatAge = 3600; (Get-WatchdogAction @a).stale })) ''
+Check 'watchdog: stale twice in a row -> replace' ((Wd @{ HeartbeatAge = 600; WasStale = $true }) -eq 'replace') ''
+Check 'watchdog: stale and not responding -> replace' ((Wd @{ HeartbeatAge = 600; Responding = $false }) -eq 'replace') ''
+Check 'watchdog: not responding but heartbeat fresh -> nothing' ((Wd @{ Responding = $false }) -eq 'none') ''
+Check 'widget: Exit leaves the marker, start clears it, UI writes a heartbeat' ($src -match '(?s)function Stop-Widget \{.*?ExitMarkerPath.*?\n\}' -and $src -match 'Remove-Item -LiteralPath \$script:ExitMarkerPath' -and $src -match '(?s)RenderTimer\.add_Tick\(\{.*?Write-Heartbeat') ''
+Check 'widget: collector timeout also covers an exited collector whose output pipe is still held' ($src -match 'if \(-not \$p\.HasExited -or -not \$script:ProcOut\.IsCompleted\)') ''
+
+# ---- collector timeout stops the whole process tree (#23), including children left by an exited collector
+foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Stop-ProcessTree' }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
+$ps = Join-Path $PSHOME 'powershell.exe'
+function Get-Children([int]$id) { @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $id" -ErrorAction SilentlyContinue | ForEach-Object { [int]$_.ProcessId }) }
+function Start-Tree([int]$parentSeconds) {
+    $p = Start-Process -FilePath $ps -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile', '-Command', "Start-Process -FilePath '$ps' -WindowStyle Hidden -ArgumentList '-NoProfile','-Command','Start-Sleep 90'; Start-Sleep $parentSeconds")
+    $kids = @(); $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    while ($kids.Count -eq 0 -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 300; $kids = Get-Children $p.Id }
+    return @{ root = $p; kids = $kids }
+}
+$t1 = Start-Tree 90
+$n1 = Stop-ProcessTree $t1.root.Id; Start-Sleep -Milliseconds 700
+$alive1 = @(@($t1.root.Id) + $t1.kids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
+Check 'collector timeout: parent and child both stopped' ($t1.kids.Count -ge 1 -and $n1 -ge 2 -and $alive1.Count -eq 0) "kids=$($t1.kids -join ',') stopped=$n1 alive=$($alive1 -join ',')"
+$t2 = Start-Tree 2
+[void]$t2.root.WaitForExit(15000)
+$n2 = Stop-ProcessTree $t2.root.Id -SkipRoot; Start-Sleep -Milliseconds 700
+$alive2 = @($t2.kids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
+Check 'collector timeout: child left by an exited collector stopped' ($t2.kids.Count -ge 1 -and $t2.root.HasExited -and $alive2.Count -eq 0) "kids=$($t2.kids -join ',') alive=$($alive2 -join ',')"
+foreach ($id in @($t1.kids + $t2.kids)) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
 
 # ---- pills stay visible over shell overlays (#24)
 foreach ($fn in 'Initialize-Native') { foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $fn }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) } }

@@ -3,8 +3,7 @@
     Removes the Codex Usage Widget from this PC (Windows PowerShell 5.1, no admin).
 
 .DESCRIPTION
-    Stops only the Codex widget, removes its "Codex Usage Widget.lnk" Startup shortcut and its
-    "Codex Usage Widget watchdog" scheduled task, and deletes
+    Stops only the Codex widget, removes its "Codex Usage Widget.lnk" Startup shortcut and deletes
     %LOCALAPPDATA%\CodexUsageWidget (scripts, settings, history, cache, log). -KeepData keeps settings and
     history and removes only the scripts. Your Codex sign-in and the source folder are never touched.
 
@@ -82,14 +81,14 @@ Say 'Codex Usage Widget - uninstaller'
 Set-Location -LiteralPath $env:USERPROFILE      # never hold the folder we are about to delete
 [Environment]::CurrentDirectory = $env:USERPROFILE   # Set-Location alone leaves the process directory inside it
 
-# 1) the watchdog task first, so it cannot start the widget again while it is being removed
+# 0) watchdog task first, so it cannot start the widget again while it is being removed
+$WatchdogTask = 'Codex Usage Widget watchdog'
 try {
-    if (Get-ScheduledTask -TaskName 'Codex Usage Widget watchdog' -ErrorAction SilentlyContinue) {
-        Unregister-ScheduledTask -TaskName 'Codex Usage Widget watchdog' -Confirm:$false -ErrorAction Stop; Say '  OK   Removed the watchdog task'
-    } else { Say '  OK   No watchdog task' }
-} catch { Say "  NOTE Could not remove the watchdog task: $($_.Exception.Message)" }
+    if (Get-ScheduledTask -TaskName $WatchdogTask -ErrorAction SilentlyContinue) { Unregister-ScheduledTask -TaskName $WatchdogTask -Confirm:$false -ErrorAction Stop; Say '  OK   Removed the watchdog task' }
+    else { Say '  OK   No watchdog task' }
+} catch { Say "  NOTE Could not remove the task $WatchdogTask : $($_.Exception.Message)" }
 
-# stop only this widget
+# 1) stop only this widget
 $procs = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine -match '(?i)[\\/"\s]codex-usage-widget\.ps1' })
 foreach ($p in $procs) { try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop; Say ("  OK   Stopped the widget (PID {0})" -f $p.ProcessId) } catch { Say ("  NOTE Could not stop PID {0}" -f $p.ProcessId) } }
