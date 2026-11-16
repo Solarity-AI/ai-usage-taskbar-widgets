@@ -62,7 +62,7 @@ $script:ExitMarkerPath = Join-Path $script:AppDir 'exited-by-user'  # left by Ex
 $script:CollectorPath = Join-Path $PSScriptRoot $script:CollectorName
 $script:UninstallPath = Join-Path $PSScriptRoot 'uninstall.ps1'
 $script:ShortcutPath  = Join-Path ([Environment]::GetFolderPath('Startup')) ('{0} Usage Widget.lnk' -f $script:ProductName)
-$script:Version       = '1.3.0'          # release version (tools\package.ps1 and the release workflow check it)
+$script:Version       = '1.3.1'          # release version (tools\package.ps1 and the release workflow check it)
 $script:HomeUrl       = 'https://solarity-ai.github.io/ai-usage-taskbar-widgets/'
 $script:CollectorTimeoutSeconds = 120   # the collector may run the official CLI
 $script:AnchorGapPx   = 8               # physical pixels between neighbouring pills / the notification area
@@ -576,6 +576,16 @@ function Get-PaceView {
     return [pscustomobject]@{ title = $title; level = $level; lines = $lines.ToArray(); pill = $pill }
 }
 
+function Test-AlertSent {
+    # True when an alert was already shown for this limit window. Keys hold the reset time rounded to the hour,
+    # and the reported reset drifts by minutes between readings: one drifting across :30 changes the rounded hour
+    # by 1. So a key for the neighbouring hour counts as the same window (#36). Any drift under 30 minutes is
+    # covered; different windows of one limit reset at least 5 hours apart, so they never match each other.
+    param($Sent, [string]$Kind, [long]$Hour, [string]$Suffix = '')
+    foreach ($h in @(($Hour - 1), $Hour, ($Hour + 1))) { if ($Sent.ContainsKey("$Kind`:$h$Suffix")) { return $true } }
+    return $false
+}
+
 function Get-AlertsDue {
     # Alerts to show now, each at most once per limit window: weekly "% left" thresholds (only the lowest newly
     # crossed one is shown; higher ones are marked as done), 5-hour window at 10% left, and "runs out early".
@@ -589,7 +599,7 @@ function Get-AlertsDue {
     if ($null -ne $left -and $null -ne $reset) {
         $rk = [long][Math]::Round((ConvertTo-Unix $reset) / 3600.0)
         $crossed = @(@($Settings.alert_at) + 0 | Where-Object { $left -le [double]$_ } | Sort-Object -Unique)
-        $new = @($crossed | Where-Object { -not $Sent.ContainsKey("w:$rk`:$_") })
+        $new = @($crossed | Where-Object { -not (Test-AlertSent $Sent 'w' $rk ":$_") })
         if ($new.Count -gt 0) {
             $lowest = ($crossed | Measure-Object -Minimum).Minimum
             $when = ('Resets {0} (in {1}).' -f (Format-LocalTime $reset $Now), (Get-ResetText $reset $Now))
@@ -599,7 +609,7 @@ function Get-AlertsDue {
             if ($null -ne $WeeklyPace -and $WeeklyPace.runs_out) { $text += (' At this speed it runs out {0}.' -f (Format-LocalTime $WeeklyPace.run_out_at $Now)) }
             [void]$out.Add([pscustomobject]@{ title = $title; text = $text; keys = @($crossed | ForEach-Object { "w:$rk`:$_" }) })
         }
-        if ($Settings.alert_runout -and $null -ne $WeeklyPace -and $WeeklyPace.runs_out -and $null -ne $WeeklyPace.speed_pct -and $WeeklyPace.spare_h -ge 6 -and $left -gt 0 -and -not $Sent.ContainsKey("r:$rk")) {
+        if ($Settings.alert_runout -and $null -ne $WeeklyPace -and $WeeklyPace.runs_out -and $null -ne $WeeklyPace.speed_pct -and $WeeklyPace.spare_h -ge 6 -and $left -gt 0 -and -not (Test-AlertSent $Sent 'r' $rk)) {
             [void]$out.Add([pscustomobject]@{
                 title = ('{0}: on track to run out early' -f $Product)
                 text = ('At this speed the weekly limit runs out {0}, {1} before the reset. To last, keep to about {2}% a day.' -f (Format-LocalTime $WeeklyPace.run_out_at $Now), (Format-Span $WeeklyPace.spare_h), (Format-Share ($WeeklyPace.budget_rate * 24.0)))
@@ -610,8 +620,9 @@ function Get-AlertsDue {
     $sl = Get-Left $s
     $sr = $(if ($null -ne $s) { ConvertTo-UtcTime $s.resets_at } else { $null })
     if ($null -ne $sl -and $null -ne $sr -and $sl -le 10) {
-        $sk = 's:' + [long][Math]::Round((ConvertTo-Unix $sr) / 3600.0)
-        if (-not $Sent.ContainsKey($sk)) {
+        $sh = [long][Math]::Round((ConvertTo-Unix $sr) / 3600.0)
+        $sk = "s:$sh"
+        if (-not (Test-AlertSent $Sent 's' $sh)) {
             [void]$out.Add([pscustomobject]@{ title = ('{0}: 5-hour limit almost used ({1} left)' -f $Product, (Format-Percent $sl)); text = ('It resets {0} (in {1}).' -f (Format-LocalTime $sr $Now), (Get-ResetText $sr $Now)); keys = @($sk) })
         }
     }
@@ -813,10 +824,21 @@ function Save-History {
 }
 
 function Read-AlertsSent {
-    $h = @{}
-    $j = Read-JsonFile $script:AlertsPath
-    if ($null -ne $j) { foreach ($p in $j.PSObject.Properties) { $h[$p.Name] = [double]$p.Value } }
-    return $h
+    # A damaged alerts.json must never stop the widget from starting (#29): bad values are skipped, and anything
+    # that is not a JSON object gives an empty set (at worst an alert shows once more).
+    try {
+        $h = @{}
+        $j = Read-JsonFile $script:AlertsPath
+        if ($null -eq $j -or -not ($j -is [Management.Automation.PSCustomObject])) { return @{} }
+        foreach ($p in $j.PSObject.Properties) {
+            $v = 0.0
+            if ($null -ne $p.Value -and -not ($p.Value -is [Array]) -and [double]::TryParse([string]$p.Value, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$v) -and -not [double]::IsNaN($v) -and -not [double]::IsInfinity($v)) { $h[$p.Name] = $v }
+        }
+        return $h
+    } catch {
+        Write-Log "alerts.json ignored: $($_.Exception.Message)"
+        return @{}
+    }
 }
 
 function Save-AlertsSent {
@@ -1351,6 +1373,16 @@ function Get-ClearX {
     return $X
 }
 
+function Get-ClampedPosition {
+    # Moves a W x H rectangle at (X, Y) fully inside the monitor bounds (physical px). An empty monitor rect
+    # (monitor not found) leaves the position as it is.
+    param([int]$X, [int]$Y, [int]$W, [int]$H, [int]$Left, [int]$Top, [int]$Right, [int]$Bottom)
+    if ($Right -le $Left -or $Bottom -le $Top) { return @{ x = $X; y = $Y } }
+    $nx = [Math]::Max($Left, [Math]::Min($X, $Right - $W))
+    $ny = [Math]::Max($Top, [Math]::Min($Y, $Bottom - $H))
+    return @{ x = [int]$nx; y = [int]$ny }
+}
+
 function Get-TargetPosition {
     # Where pill $P (W x H physical px) belongs. Primary: manual > anchor > tray. Other taskbars: anchor > right end.
     param($P, [int]$W, [int]$H)
@@ -1471,6 +1503,13 @@ function Update-PillPlacement {
     $w = $r.Right - $r.Left; $h = $r.Bottom - $r.Top
     if ($w -le 0 -or $h -le 0) { return }
     $t = Get-TargetPosition $P $w $h
+    # Keep the whole pill on the monitor it targets (#32): a pill wider than a left or right taskbar, or one
+    # placed above an anchor near the top, would otherwise hang off the screen edge.
+    $tr = New-Object UsageWidget.RECT
+    $tr.Left = $t.x; $tr.Top = $t.y; $tr.Right = $t.x + $w; $tr.Bottom = $t.y + $h
+    $mon = [UsageWidget.Native]::MonitorRect($tr, $true)
+    $cl = Get-ClampedPosition $t.x $t.y $w $h $mon.Left $mon.Top $mon.Right $mon.Bottom
+    $t.x = $cl.x; $t.y = $cl.y
     if ($t.mode -ne $P.Mode -or $t.note -ne $P.Note) {
         Write-Log ("placement{0}: {1}{2}" -f $(if ($P.Primary) { '' } else { ' (other taskbar)' }), $t.mode, $(if ($t.note) { " ($($t.note))" } else { '' }))
     }
@@ -1535,17 +1574,14 @@ function New-Pill {
     })
     $ui.Pill.add_MouseLeftButtonUp({
         param($s, $e)
+        # Take the drag state first: releasing the capture raises LostMouseCapture, which must then do nothing.
+        $ds = $script:DragStart; $wasDragging = $script:Dragging
+        $script:DragStart = $null; $script:Dragging = $false
         $s.ReleaseMouseCapture()
-        if ($script:Dragging) {
-            $r = Get-WinRect $script:DragStart.pill.Hwnd
-            $script:Settings.placement = 'manual'; $script:Settings.x = $r.Left; $script:Settings.y = $r.Top
-            Save-Settings
-            $script:DragStart.pill.Mode = 'manual'
-            Write-Log "placement: manual saved"
-            $script:Dragging = $false
-            Update-PillPlacement $script:DragStart.pill                  # applies the notification-area clearance
-        } elseif ($null -ne $script:DragStart) {
-            $pp = $script:DragStart.pill
+        if ($wasDragging -and $null -ne $ds) {
+            Complete-Drag $ds.pill
+        } elseif ($null -ne $ds) {
+            $pp = $ds.pill
             if ($script:CardPinned -and $script:CardOwner -eq $pp) { $script:CardPinned = $false; Hide-Card }
             else {
                 # Click: pin the card and fetch a fresh reading (at most every 20 s, so clicks never hammer the service).
@@ -1558,9 +1594,16 @@ function New-Pill {
                 Show-Card $pp $true
             }
         }
-        $script:Dragging = $false
-        $script:DragStart = $null
         $e.Handled = $true
+    })
+    # Capture lost mid-drag (Alt+Tab, a UAC prompt, another window taking the mouse) with no button-up: end the
+    # drag there, keep the spot reached so far, and never treat it as a click (#37).
+    $ui.Pill.add_LostMouseCapture({
+        param($s, $e)
+        if ($null -eq $script:DragStart) { return }
+        $ds = $script:DragStart; $wasDragging = $script:Dragging
+        $script:DragStart = $null; $script:Dragging = $false
+        if ($wasDragging) { try { Complete-Drag $ds.pill } catch { Write-Log "drag end error: $($_.Exception.Message)" } }
     })
     $win.add_SourceInitialized({ param($s, $e) $pp = Get-PillBySender $s; Set-ToolWindowStyle $s; $pp.Hwnd = Get-Hwnd $s })
     $win.add_ContentRendered({ param($s, $e) $pp = Get-PillBySender $s; Update-PillPlacement $pp; Start-Fade $s 1.0 180 })
@@ -1569,6 +1612,18 @@ function New-Pill {
     $win.Show()
     Update-PillVisual $p
     return $p
+}
+
+function Complete-Drag {
+    # Ends a horizontal drag of pill $P: saves where it is now as the manual position, then re-applies placement
+    # (which keeps it clear of the notification area). Called with $script:Dragging already false.
+    param($P)
+    $r = Get-WinRect $P.Hwnd
+    $script:Settings.placement = 'manual'; $script:Settings.x = $r.Left; $script:Settings.y = $r.Top
+    Save-Settings
+    $P.Mode = 'manual'
+    Write-Log "placement: manual saved"
+    Update-PillPlacement $P
 }
 
 function Remove-Pill {
@@ -1648,6 +1703,16 @@ function Start-Refresh {
         Write-Log "collector start failed: $($_.Exception.GetType().Name)"
         Update-View
     }
+}
+
+function Reset-Refresh {
+    # After an unexpected error while finishing a refresh: stop the collector and everything it started (#35),
+    # release the process handle and clear the refresh state, so the next poll starts cleanly.
+    $p = $script:Proc
+    $script:Proc = $null; $script:Refreshing = $false; $script:ManualRefresh = $false
+    if ($null -eq $p) { return }
+    try { [void](Stop-ProcessTree $p.Id -SkipRoot:$p.HasExited) } catch { }
+    try { $p.Dispose() } catch { }
 }
 
 function Write-CollectorLog {
@@ -2409,7 +2474,7 @@ function Start-Widget {
     $script:TickTimer = New-Object Windows.Threading.DispatcherTimer
     $script:TickTimer.Interval = [TimeSpan]::FromMilliseconds(250)
     $script:TickTimer.add_Tick({ if ($null -ne $script:SignInProc -and $script:SignInProc.HasExited) { $script:SignInProc = $null; Write-Log 'sign-in window closed; refreshing'; $script:ManualRefresh = $true; Start-Refresh $true } })
-    $script:TickTimer.add_Tick({ try { Complete-Refresh } catch { Write-Log "refresh error: $($_.Exception.Message)"; $script:Proc = $null; $script:Refreshing = $false } })
+    $script:TickTimer.add_Tick({ try { Complete-Refresh } catch { Write-Log "refresh error: $($_.Exception.Message)"; Reset-Refresh } })
     # A foreground change already re-raised the pills (in the hook); a hidden pill re-checks at once so it
     # comes back as soon as the full-screen app loses focus instead of up to 1.5 s later.
     $script:TickTimer.add_Tick({

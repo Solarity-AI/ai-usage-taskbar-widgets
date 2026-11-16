@@ -61,8 +61,14 @@ function Invoke-Watchdog {
     $procs = @()
     $installed = Test-Path -LiteralPath $widget -PathType Leaf
     if ($installed) {
-        $procs = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
-            Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine -match $pattern })
+        # A failed query must not read as "not running", or a second widget would start (#38).
+        try {
+            $procs = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction Stop |
+                Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine -match $pattern })
+        } catch {
+            Write-WatchdogLog "could not list processes ($($_.Exception.Message)); skipped this check"
+            return
+        }
     }
     $age = -1.0
     if (Test-Path -LiteralPath $heartbeat) { $age = ([DateTime]::UtcNow - (Get-Item -LiteralPath $heartbeat).LastWriteTimeUtc).TotalSeconds }
@@ -77,7 +83,11 @@ function Invoke-Watchdog {
     if ($d.action -eq 'none') { return }
 
     if ($d.action -eq 'replace') {
-        foreach ($p in $procs) { try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop } catch { } }
+        # End each widget with its whole tree (the collector and the CLI it runs), so nothing is left behind (#35).
+        foreach ($p in $procs) {
+            try { & cmd.exe /d /c ('"{0}" /T /F /PID {1} >nul 2>nul' -f [IO.Path]::Combine($env:SystemRoot, 'System32', 'taskkill.exe'), $p.ProcessId) } catch { }
+            try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop } catch { }
+        }
         Write-WatchdogLog ('replaced a hung widget (pid {0}; heartbeat {1:N0} s old, responding={2})' -f (($procs | ForEach-Object { $_.ProcessId }) -join ','), $age, $responding)
         Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
         Start-Sleep -Milliseconds 800

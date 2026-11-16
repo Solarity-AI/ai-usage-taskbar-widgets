@@ -38,7 +38,7 @@ param(
     [string]$ClaudeCliPath,
     # TEST ONLY (simulated): JSON file used as the HTTP 200 body instead of the network.
     [string]$TestResponseFile,
-    # TEST ONLY (simulated): pretend the request failed with this HTTP status (-1 = network error).
+    # TEST ONLY (simulated): pretend the request failed with this HTTP status (-1 = network error, -2 = offline: DNS or connect failure).
     [int]$TestHttpStatus = 0,
     # TEST ONLY: override "now" as Unix seconds.
     [double]$TestNowUnix = 0
@@ -264,8 +264,12 @@ function Read-SharedText {
 function Resolve-ClaudeHome {
     $configured = $env:CLAUDE_CONFIG_DIR
     if ($configured -and $configured.Trim().Length -gt 0) {
-        $p = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($configured.Trim()))
-        return [ordered]@{ path = $p; configured = $true; exists = (Test-Path -LiteralPath $p -PathType Container) }
+        # A value that is not a valid path (e.g. "C:\bad|dir?") counts as a missing folder, not an internal error (#33).
+        try { $p = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($configured.Trim())) }
+        catch { return [ordered]@{ path = $configured; configured = $true; exists = $false } }
+        $exists = $false
+        try { $exists = Test-Path -LiteralPath $p -PathType Container } catch { }
+        return [ordered]@{ path = $p; configured = $true; exists = $exists }
     }
     $p = Join-Path $env:USERPROFILE '.claude'
     return [ordered]@{ path = $p; configured = $false; exists = (Test-Path -LiteralPath $p -PathType Container) }
@@ -443,6 +447,16 @@ function Invoke-CliRenewal {
     return $false
 }
 
+function Invoke-TreeKill {
+    # Ends a process and every child it started (claude.cmd -> node), so a hung CLI never leaves orphans (#35).
+    param($Process)
+    try {
+        $tk = [IO.Path]::Combine($env:SystemRoot, 'System32', 'taskkill.exe')
+        if (Test-Path -LiteralPath $tk) { & cmd.exe /d /c ('"{0}" /T /F /PID {1} >nul 2>nul' -f $tk, $Process.Id) }
+    } catch { }
+    try { if (-not $Process.HasExited) { $Process.Kill() } } catch { }
+}
+
 function Invoke-ClaudeCli {
     # Runs `claude -p "/usage"` (local command: no AI request, no quota, no saved session). Keeps the text output
     # in memory for ConvertFrom-UsageText (never written anywhere). Returns @{ result; output }.
@@ -459,7 +473,7 @@ function Invoke-ClaudeCli {
         foreach ($k in @($psi.EnvironmentVariables.Keys)) { if ($k -match '^(ANTHROPIC_|CLAUDE_CODE_|CLAUDECODE$|CLAUDE_AGENT_SDK)') { $psi.EnvironmentVariables.Remove($k) } }
         $p = [Diagnostics.Process]::Start($psi)
         $o = $p.StandardOutput.ReadToEndAsync(); $null = $p.StandardError.ReadToEndAsync()
-        if (-not $p.WaitForExit($script:RenewTimeoutMs)) { try { $p.Kill() } catch { }; $p.Dispose(); return @{ result = 'timeout'; output = $null } }
+        if (-not $p.WaitForExit($script:RenewTimeoutMs)) { Invoke-TreeKill $p; $p.Dispose(); return @{ result = 'timeout'; output = $null } }
         $code = $p.ExitCode
         $p.Dispose()
         $text = $(if ($o.Wait(2000)) { $o.Result } else { $null })
@@ -546,6 +560,7 @@ function Invoke-UsageRequest {
     }
     if ($TestHttpStatus -ne 0) {
         $script:HttpCalls++
+        if ($TestHttpStatus -eq -2) { return @{ ok = $false; offline = $true; error = (New-ErrorInfo 'network' 'Could not reach the Claude usage service from this PC (network, DNS, TLS or timeout).') } }
         if ($TestHttpStatus -lt 0) { return @{ ok = $false; error = (New-ErrorInfo 'network' 'Could not reach the Claude usage service from this PC (network, DNS, TLS or timeout).') } }
         return (Get-HttpError $TestHttpStatus)
     }
@@ -569,7 +584,13 @@ function Invoke-UsageRequest {
             $req.Headers.Add('Authorization', 'Bearer ' + $Auth.access)
             $req.Headers.Add('anthropic-beta', 'oauth-2025-04-20')
             try { $resp = $req.GetResponse() }
-            catch [Net.WebException] { if ($null -ne $_.Exception.Response) { $resp = $_.Exception.Response } else { throw } }
+            catch [Net.WebException] {
+                if ($null -ne $_.Exception.Response) { $resp = $_.Exception.Response }
+                elseif (@('NameResolutionFailure', 'ConnectFailure', 'ProxyNameResolutionFailure') -contains [string]$_.Exception.Status) {
+                    # Offline (no DNS, no route): retrying or running the CLI fallback cannot help, so report it at once (#34).
+                    return @{ ok = $false; offline = $true; error = (New-ErrorInfo 'network' 'Could not reach the Claude usage service from this PC (network, DNS, TLS or timeout).') }
+                } else { throw }
+            }
             $status = [int]$resp.StatusCode
             $retryAfter = Get-RetryAfterSeconds $resp.Headers['Retry-After']
             if ($status -ge 200 -and $status -lt 300) {
@@ -642,7 +663,8 @@ function New-Output {
     $out.extra_usage   = $Obs.extra_usage
     $out.fetched_at    = $Obs.fetched_at
     $out.age_seconds   = [long][Math]::Max(0.0, [Math]::Floor(($script:Now - $fetched).TotalSeconds))
-    $out.limit_reached = $(if ($null -ne $Obs.weekly) { ($Obs.weekly.used -ge 100) } else { $null })
+    # Either window at 100% means no more use until it resets (#39); $null only when neither window is known.
+    $out.limit_reached = $(if ($null -ne $Obs.weekly -or $null -ne $Obs.session) { (($null -ne $Obs.weekly -and $Obs.weekly.used -ge 100) -or ($null -ne $Obs.session -and $Obs.session.used -ge 100)) } else { $null })
     $out.unclassified  = @($Obs.unclassified)
     $out.reset_passed  = $resetPassed.ToArray()
     $out.status        = $(if ($Stale) { 'stale' } else { 'ok' })
@@ -699,6 +721,7 @@ try {
     }
 
     $err = $null
+    $offline = $false
     if ($auth.ok -and -not $auth.expired) {
         if (-not $Force -and [double]$state.backoff_until -gt (Get-UnixNow)) {
             $script:CacheResult += '+backoff'
@@ -720,6 +743,7 @@ try {
                 Write-Result (New-Output $obs 'live' $false ($null -ne $tag) $null) 0
             }
             $err = $r.error
+            $offline = [bool]$r.offline
             $hs = $err.http_status
             if ($null -ne $hs -and ([int]$hs -eq 429 -or [int]$hs -ge 500)) {
                 Set-Backoff $state $err.code $r.retry_after
@@ -742,7 +766,8 @@ try {
     # Usage API unavailable (rate limited, server error, network) or sign-in not renewable: read Claude Code's
     # own /usage text instead. Reuses a CLI reading up to 3 minutes old; runs the CLI at most every 3 minutes.
     # A backoff error carries only its code (e.g. "http_503"), so 5xx is matched by code as well as by status.
-    $apiDown = ($null -ne $err) -and (@('http_429', 'network', 'bad_response') -contains $err.code -or [string]$err.code -match '^http_5\d\d$' -or ($null -ne $err.http_status -and [int]$err.http_status -ge 500))
+    # Offline (DNS or connect failure): the CLI cannot reach the service either, so it is not run (#34).
+    $apiDown = (-not $offline) -and ($null -ne $err) -and (@('http_429', 'network', 'bad_response') -contains $err.code -or [string]$err.code -match '^http_5\d\d$' -or ($null -ne $err.http_status -and [int]$err.http_status -ge 500))
     if (-not $NoRenew -and $auth.ok -and ($apiDown -or $null -ne $script:CliOutput)) {
         $notice = $(if ($err.code -eq 'http_429') { 'The usage service is rate limiting, so this reading comes from Claude Code''s /usage.' } else { 'The usage service is unavailable, so this reading comes from Claude Code''s /usage.' })
         $cliObs = $null

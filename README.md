@@ -105,7 +105,7 @@ The two widgets share one codebase. `claude-usage-widget\` is the source. In `co
 
 | Command | What it does |
 |---|---|
-| `powershell -NoProfile -ExecutionPolicy Bypass -File tools\sync.ps1` | Regenerates the Codex widget, installer and uninstaller from the Claude ones; checks that every script parses and has a UTF-8 BOM |
+| `powershell -NoProfile -ExecutionPolicy Bypass -File tools\sync.ps1` | Regenerates the Codex widget, installer, uninstaller and watchdog from the Claude ones; checks that every script parses and has a UTF-8 BOM |
 | `powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1` | Builds the release zips and checksums in `dist\`; checks that the version matches `CHANGELOG.md` |
 | `powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1` | What CI runs: `sync.ps1 -Check`, the version and packaging check, then both test suites (simulated: fake sign-ins and CLIs, no network) |
 

@@ -2,6 +2,34 @@
 
 Each release is listed here, newest first. The version is `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1`; tagging `v<version>` publishes it as a GitHub release with downloadable zips.
 
+## 1.3.1 (2026-11-16)
+
+Fixes from a QA bug hunt.
+
+**Fixed:** a damaged `alerts.json` stopped the widget from starting. Bad entries are now skipped ([#29](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/29)).
+
+**Fixed:** a reinstall turned *Start with Windows* back on after you had turned it off in the widget. A reinstall now keeps your choice; a first install still turns it on ([#30](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/30)).
+
+**Fixed:** on battery power, the uninstaller's run outside an app sandbox never started and gave up after 90 seconds ([#31](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/31)).
+
+**Fixed:** a pill could sit partly or fully off screen after a monitor or resolution change. It is now kept inside its monitor ([#32](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/32)).
+
+**Fixed:** a `CLAUDE_CONFIG_DIR` with characters Windows does not allow in a path made the collector fail without a readable error. It now reports the folder as missing ([#33](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/33)).
+
+**Fixed:** with no network, every refresh waited for the official CLI, which cannot reach the service either. Offline is now detected at once and the last reading is shown ([#34](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/34)).
+
+**Fixed:** when a refresh failed or the CLI timed out, its child processes could keep running. The collectors, the widget and the watchdog now stop the whole process tree ([#35](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/35)).
+
+**Fixed:** the same alert could show twice when the reported reset time moved across the half hour. Readings up to 30 minutes apart now count as the same window; your saved alerts stay valid ([#36](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/36)).
+
+**Fixed:** if Windows took the mouse away during a drag (for example with Alt+Tab or a lock), the pill kept following the pointer. The drag now ends there and the position is saved ([#37](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/37)).
+
+**Fixed:** when Windows could not list processes, the watchdog started a second widget. It now skips that check ([#38](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/38)).
+
+**Fixed:** the collector reported `limit_reached` only for the weekly limit, not for a used-up 5-hour session ([#39](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/39)).
+
+**Docs:** the installer and uninstaller help and the README now list everything they create and remove, including the watchdog, with correct example paths ([#40](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/40)).
+
 ## 1.3.0 (2026-11-16)
 
 **Tighter limit first:** the pill and the card's headline now show whichever limit runs out first, the weekly one or the 5-hour session ([#22](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/22)).

@@ -3,8 +3,12 @@
     Local installer for the Codex Usage Widget (Windows PowerShell 5.1, no admin, no downloads).
 
 .DESCRIPTION
-    Installs codex-usage.ps1, codex-usage-widget.ps1, install.ps1 and uninstall.ps1 from this script's folder into
-    %LOCALAPPDATA%\CodexUsageWidget, creates/updates only the "Codex Usage Widget.lnk" Startup shortcut,
+    Installs codex-usage.ps1, codex-usage-widget.ps1, install.ps1, uninstall.ps1 and watchdog.ps1 from this
+    script's folder into %LOCALAPPDATA%\CodexUsageWidget, then creates or updates:
+      - the "Codex Usage Widget.lnk" Startup shortcut (Start with Windows). A first install creates it; a
+        reinstall keeps the setting chosen in the widget, so it is not recreated when it was turned off,
+      - the "Codex Usage Widget.lnk" Start menu entry,
+      - the per-user scheduled task "Codex Usage Widget watchdog" (watchdog.ps1, every 5 minutes),
     then restarts only the Codex widget. Saved placement (settings.json), history and the usage cache are
     kept. Files that are already identical are not rewritten.
 
@@ -178,6 +182,10 @@ foreach ($f in $Package) {
     Write-Ok ('{0}  ({1:N0} bytes, BOM, 0 parse errors)' -f $f, $bytes.Length)
 }
 
+# A reinstall keeps Start with Windows as the user set it in the widget: no Startup shortcut stays off (#30).
+$WasInstalled = Test-Path -LiteralPath $WidgetPath -PathType Leaf
+$HadShortcut  = Test-Path -LiteralPath $ShortcutPath
+
 # ------------------------------------------------------------------ 3
 Write-Step 3 'Installing into %LOCALAPPDATA%\CodexUsageWidget'
 try {
@@ -216,7 +224,9 @@ $shell = New-Object -ComObject WScript.Shell
 try {
     $lnk = $shell.CreateShortcut($ShortcutPath)
     $upToDate = (Test-Path -LiteralPath $ShortcutPath) -and $lnk.TargetPath -ieq $PsExe -and $lnk.Arguments -eq $ShortcutArgs -and $lnk.WorkingDirectory -ieq $InstallDir
-    if ($upToDate) {
+    if ($WasInstalled -and -not $HadShortcut) {
+        Write-Ok 'Start with Windows stays off (it was turned off in the widget; turn it on from the widget menu)'
+    } elseif ($upToDate) {
         Write-Ok "$ShortcutPath (already up to date)"
     } else {
         $lnk.TargetPath = $PsExe

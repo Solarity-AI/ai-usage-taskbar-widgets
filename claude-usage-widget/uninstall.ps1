@@ -3,14 +3,18 @@
     Removes the Claude Usage Widget from this PC (Windows PowerShell 5.1, no admin).
 
 .DESCRIPTION
-    Stops only the Claude widget, removes its "Claude Usage Widget.lnk" Startup shortcut and deletes
-    %LOCALAPPDATA%\ClaudeUsageWidget (scripts, settings, history, cache, log). -KeepData keeps settings and
-    history and removes only the scripts. Your Claude sign-in and the source folder are never touched.
+    Removes the "Claude Usage Widget watchdog" scheduled task, stops only the Claude widget, removes its
+    "Claude Usage Widget.lnk" Startup shortcut and Start menu entry, and deletes %LOCALAPPDATA%\ClaudeUsageWidget
+    (scripts, settings, history, cache, logs). -KeepData keeps settings and history and removes only the scripts.
+    Your Claude sign-in and the source folder are never touched.
 
     Like the installer, it re-runs itself once through a temporary Task Scheduler task when started from a shell
     whose %LOCALAPPDATA% is redirected by an app sandbox, so it removes the real files.
 
-    PowerShell: & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\source\claude-usage-widget\uninstall.ps1"
+    Run from the unzipped release (or a clone of the repository):
+        powershell -NoProfile -ExecutionPolicy Bypass -File .\claude-usage-widget\uninstall.ps1
+    or the installed copy:
+        powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\ClaudeUsageWidget\uninstall.ps1"
 #>
 [CmdletBinding()]
 param(
@@ -59,7 +63,9 @@ if (-not $TaskLog -and (Test-AppDataRedirected)) {
     $code = $null
     try {
         $action = New-ScheduledTaskAction -Execute $PsExe -Argument $argLine -WorkingDirectory $env:USERPROFILE
-        [void](Register-ScheduledTask -TaskName $task -Action $action -Description 'Temporary: removes the usage widget outside an app sandbox. Removed automatically.' -Force)
+        # Battery-safe settings: the defaults never start the task on battery power (#31).
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
+        [void](Register-ScheduledTask -TaskName $task -Action $action -Settings $settings -Description 'Temporary: removes the usage widget outside an app sandbox. Removed automatically.' -Force)
         Start-ScheduledTask -TaskName $task
         $deadline = [DateTime]::UtcNow.AddSeconds(90)
         while ([DateTime]::UtcNow -lt $deadline -and $null -eq $code) {
