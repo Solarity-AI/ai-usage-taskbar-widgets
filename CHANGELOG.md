@@ -2,6 +2,14 @@
 
 Each release is listed here, newest first. The version is `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1`; tagging `v<version>` publishes it as a GitHub release with downloadable zips.
 
+## 1.3.0 (2026-11-16)
+
+**Tighter limit first:** the pill and the card's headline now show whichever limit runs out first, the weekly one or the 5-hour session ([#22](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/22)).
+
+**Narrower pill:** the product name now sits beside the percentage, and the second line shows only the reset time or status. The Claude pill is 132 instead of 155 pixels wide, the Codex pill 126 instead of 135 ([#25](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/25)).
+
+**Fixed:** both pills sometimes vanished and came back ([#24](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/24)). Start, Search, Task View and Alt+Tab no longer count as a full-screen app; the pills hide only after a full-screen app stays in front for 2 checks in a row, and they come back on top as soon as another window takes focus.
+
 ## 1.2.0 (2026-11-16)
 
 **Fixed:** a widget that Windows closed (for example as "not responding" after the PC woke from sleep) stayed gone until the next sign-in ([#23](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/23)). The installer now adds a per-user watchdog task that, every 5 minutes, starts the widget if it is not running and replaces one whose window stopped updating. It never restarts a widget you closed with *Exit*, with *Start with Windows* off, or after uninstalling. Run the installer again to get it.

@@ -62,7 +62,7 @@ $script:ExitMarkerPath = Join-Path $script:AppDir 'exited-by-user'  # left by Ex
 $script:CollectorPath = Join-Path $PSScriptRoot $script:CollectorName
 $script:UninstallPath = Join-Path $PSScriptRoot 'uninstall.ps1'
 $script:ShortcutPath  = Join-Path ([Environment]::GetFolderPath('Startup')) ('{0} Usage Widget.lnk' -f $script:ProductName)
-$script:Version       = '1.2.0'          # release version (tools\package.ps1 and the release workflow check it)
+$script:Version       = '1.3.0'          # release version (tools\package.ps1 and the release workflow check it)
 $script:HomeUrl       = 'https://solarity-ai.github.io/ai-usage-taskbar-widgets/'
 $script:CollectorTimeoutSeconds = 120   # the collector may run the official CLI
 $script:AnchorGapPx   = 8               # physical pixels between neighbouring pills / the notification area
@@ -304,6 +304,17 @@ function Get-PaceSummary {
         }
     }
     return [pscustomobject]$s
+}
+
+function Get-BindingLimit {
+    # The limit that runs out first: the 5-hour session when less of it is left than of the weekly limit
+    # (and it hasn't reset yet), else the weekly limit. Per-model limits apply to one model only and never bind.
+    param($Data, $Now = [DateTime]::UtcNow)
+    $w = $Data.weekly; $s = $Data.session
+    $wl = Get-Left $w; $sl = Get-Left $s
+    $sOk = ($null -ne $sl -and $null -ne $s -and $null -ne (ConvertTo-UtcTime $s.resets_at) -and (ConvertTo-UtcTime $s.resets_at) -gt (ConvertTo-UtcTime $Now))
+    if ($sOk -and ($null -eq $wl -or $sl -lt $wl)) { return [pscustomobject]@{ kind = 'session'; window = $s; left = $sl } }
+    return [pscustomobject]@{ kind = 'weekly'; window = $w; left = $wl }
 }
 
 function Get-WindowLabel {
@@ -864,6 +875,7 @@ function Initialize-Native {
         Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 namespace UsageWidget {
@@ -942,23 +954,73 @@ namespace UsageWidget {
             return res;
         }
 
-        // True when the foreground window (not the desktop, a taskbar or our own process) covers the
-        // whole monitor that contains rect r: a full-screen game, video, presentation or the lock screen.
+        // Shell surfaces that cover the whole monitor for a moment (Start, Search, Task View, Alt+Tab, the
+        // notification center, taskbar thumbnails) but are not full-screen apps: the pills stay visible.
+        static readonly string[] ShellClasses = { "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd",
+            "MultitaskingViewFrame", "XamlExplorerHostIslandWindow", "TaskListThumbnailWnd", "ForegroundStaging",
+            "Windows.UI.Input.InputSite.WindowClass", "NotifyIconOverflowWindow", "TopLevelWindowForOverflowXamlIsland" };
+        static readonly string[] ShellProcesses = { "explorer", "StartMenuExperienceHost", "SearchHost", "SearchApp",
+            "ShellExperienceHost", "ShellHost", "TextInputHost" };
+
+        public static bool IsShellSurface(string cls, string process) {
+            if (Array.IndexOf(ShellClasses, cls) >= 0) return true;
+            foreach (string p in ShellProcesses) if (string.Equals(p, process, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        static string ProcessName(uint pid) {
+            try { using (Process p = Process.GetProcessById((int)pid)) return p.ProcessName; } catch { return ""; }
+        }
+
+        // True when the foreground window (not the desktop, a taskbar, a shell overlay or our own process)
+        // covers the whole monitor that contains rect r: a full-screen game, video, presentation or the lock screen.
         public static bool FullscreenInFront(RECT r, uint ownPid) {
             IntPtr h = GetForegroundWindow();
             if (h == IntPtr.Zero) return false;
             uint pid; GetWindowThreadProcessId(h, out pid);
             if (pid == ownPid) return false;
-            StringBuilder sb = new StringBuilder(64);
-            GetClassName(h, sb, 64);
+            StringBuilder sb = new StringBuilder(128);
+            GetClassName(h, sb, 128);
             string c = sb.ToString();
-            if (c == "Progman" || c == "WorkerW" || c == "Shell_TrayWnd" || c == "Shell_SecondaryTrayWnd") return false;
+            if (Array.IndexOf(ShellClasses, c) >= 0) return false;
             RECT w;
             if (!GetWindowRect(h, out w)) return false;
             RECT m = MonitorRect(r, true);
             if (m.Right <= m.Left) return false;
-            return w.Left <= m.Left && w.Top <= m.Top && w.Right >= m.Right && w.Bottom >= m.Bottom;
+            if (!(w.Left <= m.Left && w.Top <= m.Top && w.Right >= m.Right && w.Bottom >= m.Bottom)) return false;
+            return !IsShellSurface(c, ProcessName(pid));
         }
+
+        // Clicking the taskbar raises it above every topmost window until the pills re-assert themselves.
+        // A foreground-change hook puts the pills back on top at once instead of up to 1.5 s later.
+        delegate void WinEventProc(IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
+        [DllImport("user32.dll")] static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr mod, WinEventProc proc, uint pid, uint tid, uint flags);
+        static WinEventProc foregroundProc;
+        static IntPtr foregroundHook = IntPtr.Zero;
+        static IntPtr[] topmostHandles = new IntPtr[0];
+        static int foregroundChanges;
+
+        public static void SetTopmostHandles(IntPtr[] handles) { topmostHandles = handles ?? new IntPtr[0]; }
+
+        public static void RaiseTopmost() {
+            foreach (IntPtr h in topmostHandles) {
+                if (h != IntPtr.Zero && IsWindow(h) && IsWindowVisible(h))
+                    SetWindowPos(h, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0200);   // NOSIZE NOMOVE NOACTIVATE NOOWNERZORDER
+            }
+        }
+
+        public static bool WatchForeground() {
+            if (foregroundHook != IntPtr.Zero) return true;
+            foregroundProc = delegate (IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time) {
+                foregroundChanges++;
+                RaiseTopmost();
+            };
+            // EVENT_SYSTEM_FOREGROUND, out of context: delivered on this (UI) thread's message loop.
+            foregroundHook = SetWinEventHook(3, 3, IntPtr.Zero, foregroundProc, 0, 0, 0);
+            return foregroundHook != IntPtr.Zero;
+        }
+
+        public static int TakeForegroundChanges() { int n = foregroundChanges; foregroundChanges = 0; return n; }
     }
 }
 '@
@@ -982,7 +1044,7 @@ $script:PillXaml = @'
         <TextBlock x:Name="Badge" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="9" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" Text="&#xE708;"/>
       </Grid>
       <StackPanel VerticalAlignment="Center">
-        <TextBlock x:Name="Hero" FontFamily="Segoe UI Variable Display, Segoe UI" FontSize="16" FontWeight="SemiBold" Margin="0,-3,0,0"><Run x:Name="HeroNum" Text="..."/><Run x:Name="HeroPct" FontSize="10.5" FontWeight="Normal" Text=""/></TextBlock>
+        <TextBlock x:Name="Hero" FontFamily="Segoe UI Variable Display, Segoe UI" FontSize="16" FontWeight="SemiBold" Margin="0,-3,0,0"><Run x:Name="HeroNum" Text="..."/><Run x:Name="HeroPct" FontSize="10.5" FontWeight="Normal" Text=""/><Run x:Name="HeroTag" FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="10" FontWeight="Normal" Text=""/></TextBlock>
         <TextBlock x:Name="Sub" FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="10" Margin="0,-3,0,0" Text=""/>
       </StackPanel>
     </StackPanel>
@@ -1356,7 +1418,14 @@ function Set-PillFit {
     }
     if ([Math]::Abs($P.UI.Pill.Height - $target) -gt 0.1) { $P.UI.Pill.Height = $target }
     $sub = $(if ($script:Settings.compact) { 'Collapsed' } else { 'Visible' })
-    if ($P.UI.Sub.Visibility -ne $sub) { $P.UI.Sub.Visibility = $sub; Set-PillWidth $P.UI }
+    if ($P.UI.Sub.Visibility -ne $sub) { $P.UI.Sub.Visibility = $sub; $P.UI.HeroTag.Text = Get-PillTag; Set-PillWidth $P.UI }
+}
+
+function Get-PillTag {
+    # The product name sits after the percentage on the top line, so the second line holds only the status
+    # and the pill stays narrow. Compact mode shows the number alone.
+    if ($script:Settings.compact) { return '' }
+    return ' ' + $script:ProductKey
 }
 
 function Set-PillWidth {
@@ -1391,7 +1460,10 @@ function Update-PillPlacement {
     param($P)
     if ($null -eq $P.Hwnd -or ($script:Dragging -and $P.Primary)) { return }
     $pr = Get-WinRect $P.Hwnd
-    $full = [UsageWidget.Native]::FullscreenInFront($pr, [uint32]$PID)
+    # Hide only when full screen is seen on 2 checks in a row, so a window that covers the screen for a
+    # moment (a launching app, a shell animation) never makes the pills blink.
+    if ([UsageWidget.Native]::FullscreenInFront($pr, [uint32]$PID)) { $P.FullChecks = [int]$P.FullChecks + 1 } else { $P.FullChecks = 0 }
+    $full = ($P.FullChecks -ge 2) -or ($P.Hidden -and $P.FullChecks -ge 1)
     Set-PillHidden $P $full
     if ($full) { return }
     Set-PillFit $P
@@ -1411,6 +1483,7 @@ function Update-PillPlacement {
 function Update-Placement {
     Sync-Pills
     foreach ($p in @($script:Pills)) { try { Update-PillPlacement $p } catch { Write-Log "placement error: $($_.Exception.Message)" } }
+    [UsageWidget.Native]::SetTopmostHandles([IntPtr[]]@($script:Pills | Where-Object { $null -ne $_.Hwnd } | ForEach-Object { $_.Hwnd }))
 }
 
 # ---------------------------------------------------------------- pills (one per taskbar)
@@ -1427,12 +1500,12 @@ function New-Pill {
     $win.Title = $script:WindowTitle
     $ui = @{}
     foreach ($n in @([regex]::Matches($script:PillXaml, 'x:Name="(\w+)"') | ForEach-Object { $_.Groups[1].Value })) { $ui[$n] = $win.FindName($n) }
-    $ui.Sub.Text = $script:ProductKey
+    $ui.HeroTag.Text = Get-PillTag
     $ui.Pill.ContextMenu = $script:Menu
     $ui.Pill.MinWidth = $(if ($script:Settings.compact) { $script:CompactWidth } else { $script:PillWidth })
     $ui.Sub.Visibility = $(if ($script:Settings.compact) { 'Collapsed' } else { 'Visible' })
     [Windows.Automation.AutomationProperties]::SetName($ui.Pill, $script:WindowTitle)
-    $p = @{ Win = $win; Hwnd = $null; Bar = $Bar; Primary = $Primary; UI = $ui; Hidden = $false; Mode = $null; Note = $null; AnchorSeenAt = $null }
+    $p = @{ Win = $win; Hwnd = $null; Bar = $Bar; Primary = $Primary; UI = $ui; Hidden = $false; FullChecks = 0; Mode = $null; Note = $null; AnchorSeenAt = $null }
     [void]$script:Pills.Add($p)
 
     $ui.Pill.add_MouseEnter({ param($s, $e) $script:HideTimer.Stop(); if (-not $script:Dragging -and -not $script:Menu.IsOpen) { Show-Card (Get-PillBySender $s) } })
@@ -1904,7 +1977,7 @@ function Update-PillVisual {
     $ui.Pill.Background = $st.bg; $ui.Pill.BorderBrush = $st.border
     $num = [string]$st.hero; $sign = ''
     if ($num.Length -gt 1 -and $num.EndsWith('%')) { $sign = '%'; $num = $num.Substring(0, $num.Length - 1) }
-    $ui.HeroNum.Text = $num; $ui.HeroPct.Text = $sign
+    $ui.HeroNum.Text = $num; $ui.HeroPct.Text = $sign; $ui.HeroTag.Text = Get-PillTag; $ui.HeroTag.Foreground = $st.tagBrush
     $ui.Hero.Foreground = $st.fg; $ui.Hero.Opacity = $st.opacity; $ui.Hero.FontStyle = $st.style
     $ui.Sub.Text = $st.sub; $ui.Sub.Foreground = $st.subBrush
     $ui.RingTrack.Stroke = $st.track
@@ -1943,10 +2016,10 @@ function Update-View {
         $ui.HeroLines.Children.Clear()
         $ui.PaceLines.Children.Clear()
         $st = @{ bg = $T.pillBgB; border = $T.pillBorderB; fg = $T.pillFgB; track = $T.pillTrackB; opacity = 1.0; style = [Windows.FontStyles]::Normal
-                 subBrush = $T.pillDimB; snoozed = $snoozed; stale = $false; fraction = $null; ring = $T.grayRingB }
+                 subBrush = $T.pillDimB; tagBrush = $T.pillDimB; snoozed = $snoozed; stale = $false; fraction = $null; ring = $T.grayRingB }
         if ($null -eq $d) {
             $st.hero = $(if ($script:CollectorFailure) { [string][char]0x2014 } else { '...' })
-            $st.sub = $tag + " $dot " + $(if ($script:CollectorFailure) { 'unavailable' } else { 'loading' })
+            $st.sub = $(if ($script:CollectorFailure) { 'unavailable' } else { 'loading' })
             $st.a11y = "$($script:WindowTitle): $($st.sub)"
             $script:PillState = $st
             foreach ($p in @($script:Pills)) { Update-PillVisual $p }
@@ -1962,7 +2035,8 @@ function Update-View {
         }
 
         $weekly = $d.weekly
-        $left = Get-Left $weekly
+        $bind = Get-BindingLimit $d $now                                  # pill and hero follow the limit that runs out first
+        $left = $bind.left
         $level = Get-LevelKey $left
         $stale = ($d.stale -eq $true) -or ($null -ne $script:CollectorFailure)
         $authCodes = @('auth_expired', 'auth_missing', 'auth_unreadable', 'auth_malformed', 'auth_mode_unsupported', 'http_401', 'http_403')
@@ -1985,14 +2059,15 @@ function Update-View {
         if ($null -eq $weekly) {
             $subRight = $(if (@($d.reset_passed) -contains 'weekly') { 'reset, refreshing' } else { 'unavailable' })
         } elseif (-not $subRight) { $subRight = 'reset unknown' }
+        if ($bind.kind -eq 'session') { $subRight = 'session ' + (Get-ResetText $bind.window.resets_at $now) }
         if ($needsSignIn) { $subRight = 'sign in needed'; $st.subBrush = $T.warnB }
-        elseif (-not $stale -and $script:Settings.pill -eq 'budget' -and $null -ne $budget) {
+        elseif (-not $stale -and $bind.kind -eq 'weekly' -and $script:Settings.pill -eq 'budget' -and $null -ne $budget) {
             $subRight = ('today {0} of {1}%' -f (Format-Share $budget.used_today), (Format-Share $budget.budget))
             if ($budget.over) { $st.subBrush = $T.warnB }
         }
         if ($script:Refreshing -and $script:ManualRefresh) { $subRight = 'refreshing' + [char]0x2026; $st.subBrush = $T.pillDimB }
-        $st.sub = "$tag $dot $subRight"
-        $st.a11y = ('{0}: {1} of the weekly limit left; {2}' -f $script:WindowTitle, $pct, $subRight)
+        $st.sub = $subRight
+        $st.a11y = ('{0}: {1} of the {2} limit left; {3}' -f $script:WindowTitle, $pct, $(if ($bind.kind -eq 'session') { '5-hour session' } else { 'weekly' }), $subRight)
         $script:PillState = $st
         foreach ($p in @($script:Pills)) { Update-PillVisual $p }
 
@@ -2000,7 +2075,8 @@ function Update-View {
         $ui.CardHero.Text = $pct
         $ui.CardHero.Foreground = $T[$level + 'B']
         $exhausted = ($null -ne $left -and $left -le 0)
-        $ui.CardHeroLabel.Text = $(if ($null -eq $left) { 'weekly data unavailable' }
+        $ui.CardHeroLabel.Text = $(if ($bind.kind -eq 'session') { ('left in this {0}-hour session' -f [Math]::Round([double]$bind.window.window_seconds / 3600.0)) }
+                                   elseif ($null -eq $left) { 'weekly data unavailable' }
                                    elseif ($tag -eq 'claude') { "left this week $dot all models" } else { 'left this week' })
         if ($d.plan) {
             $ui.PlanText.Text = (Get-Culture).TextInfo.ToTitleCase(([string]$d.plan).ToLowerInvariant())
@@ -2334,6 +2410,14 @@ function Start-Widget {
     $script:TickTimer.Interval = [TimeSpan]::FromMilliseconds(250)
     $script:TickTimer.add_Tick({ if ($null -ne $script:SignInProc -and $script:SignInProc.HasExited) { $script:SignInProc = $null; Write-Log 'sign-in window closed; refreshing'; $script:ManualRefresh = $true; Start-Refresh $true } })
     $script:TickTimer.add_Tick({ try { Complete-Refresh } catch { Write-Log "refresh error: $($_.Exception.Message)"; $script:Proc = $null; $script:Refreshing = $false } })
+    # A foreground change already re-raised the pills (in the hook); a hidden pill re-checks at once so it
+    # comes back as soon as the full-screen app loses focus instead of up to 1.5 s later.
+    $script:TickTimer.add_Tick({
+        if ([UsageWidget.Native]::TakeForegroundChanges() -gt 0 -and @($script:Pills | Where-Object { $_.Hidden }).Count -gt 0) {
+            try { Update-Placement } catch { Write-Log "placement error: $($_.Exception.Message)" }
+        }
+    })
+    if (-not [UsageWidget.Native]::WatchForeground()) { Write-Log 'foreground hook unavailable; the pills re-assert topmost every 1.5 s only' }
     $script:PlaceTimer = New-Object Windows.Threading.DispatcherTimer
     $script:PlaceTimer.Interval = [TimeSpan]::FromMilliseconds(1500)
     $script:PlaceTimer.add_Tick({ try { Update-Placement } catch { Write-Log "placement error: $($_.Exception.Message)" } })

@@ -120,7 +120,7 @@ $tok = $null; $err = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($Widget, [ref]$tok, [ref]$err)
 $want = 'ConvertTo-UtcTime', 'ConvertTo-Unix', 'Get-Left', 'Format-Percent', 'Get-LevelKey', 'Format-Span', 'Get-ResetText', 'Format-LocalTime', 'Format-Rate',
     'Get-PaceInfo', 'Get-PaceView', 'Write-AtomicText', 'Get-PillFitHeight', 'New-History', 'Read-History', 'Add-HistorySample', 'ConvertTo-HistoryJson', 'Get-ClearX', 'Write-Log',
-    'Format-Number', 'Format-Share', 'Test-Snoozed', 'Get-SnoozeUntil', 'Format-SnoozeEnd', 'Find-SignInCli', 'Get-SameWindowSamples', 'Get-DailyBudget', 'Get-ChartGeometry', 'Get-Trend', 'Get-AlertsDue', 'ConvertTo-Settings', 'Add-WindowSample', 'Get-SpendValue', 'Format-DayTime', 'Format-ResetLine', 'Format-UsedShare', 'Get-PaceSummary', 'Get-WindowLabel', 'Invoke-Alerts'
+    'Format-Number', 'Format-Share', 'Test-Snoozed', 'Get-SnoozeUntil', 'Format-SnoozeEnd', 'Find-SignInCli', 'Get-SameWindowSamples', 'Get-DailyBudget', 'Get-ChartGeometry', 'Get-Trend', 'Get-AlertsDue', 'ConvertTo-Settings', 'Add-WindowSample', 'Get-SpendValue', 'Format-DayTime', 'Format-ResetLine', 'Format-UsedShare', 'Get-PaceSummary', 'Get-WindowLabel', 'Invoke-Alerts', 'Get-BindingLimit'
 $script:AppDir = $Root; $script:LogPath = Join-Path $Root 'widget.log'; $script:HistoryDays = 15; $script:AnchorGapPx = 8; $script:Inv = [Globalization.CultureInfo]::InvariantCulture
 foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $n.Name }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
 foreach ($a2 in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -in '$script:PillXaml', '$script:CardXaml', '$script:Thresholds' }, $true)) { . ([scriptblock]::Create($a2.Extent.Text)) }
@@ -203,6 +203,12 @@ Check 'QA-07: 99.6% used reads "99%" (matches "<1%" left), 100 reads "100%"' ((F
 $wsrc = [IO.File]::ReadAllText($Widget); $usrc = [IO.File]::ReadAllText((Join-Path $Dir 'uninstall.ps1'))
 Check 'QA-03: uninstall, collector and widget never hold the install folder as working directory' ($wsrc -match "-WorkingDirectory \`$env:USERPROFILE -ArgumentList @\('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File'" -and $wsrc -match '\$psi\.WorkingDirectory = \$env:USERPROFILE' -and $wsrc -match '\[Environment\]::CurrentDirectory = \$env:USERPROFILE' -and $usrc -match '\[Environment\]::CurrentDirectory = \$env:USERPROFILE') ''
 Check 'QA-06: a click during a 429/5xx backoff does not force a request' ($wsrc -match 'Start-Refresh \(-not \$inBackoff\)') ''
+# Pill/hero show the limit that runs out first
+$bn = [DateTime]::SpecifyKind([DateTime]'2026-11-14T12:00:00', 'Utc')
+$bw = { param($u) [pscustomobject]@{ used = $u; window_seconds = 604800; resets_at = '2026-11-18T12:00:00Z' } }
+$bs = { param($u, $r = '2026-11-14T14:00:00Z') [pscustomobject]@{ used = $u; window_seconds = 18000; resets_at = $r } }
+Check 'binding limit: 5-hour session with less left wins' ((Get-BindingLimit ([pscustomobject]@{ weekly = (& $bw 45); session = (& $bs 80) }) $bn).kind -eq 'session' -and (Get-BindingLimit ([pscustomobject]@{ weekly = (& $bw 45); session = (& $bs 80) }) $bn).left -eq 20) ''
+Check 'binding limit: weekly when it has less left, on a tie, or when the session reset passed or is missing' ((Get-BindingLimit ([pscustomobject]@{ weekly = (& $bw 70); session = (& $bs 10) }) $bn).kind -eq 'weekly' -and (Get-BindingLimit ([pscustomobject]@{ weekly = (& $bw 50); session = (& $bs 50) }) $bn).kind -eq 'weekly' -and (Get-BindingLimit ([pscustomobject]@{ weekly = (& $bw 45); session = (& $bs 90 '2026-11-14T11:00:00Z') }) $bn).kind -eq 'weekly' -and (Get-BindingLimit ([pscustomobject]@{ weekly = (& $bw 45); session = $null }) $bn).kind -eq 'weekly') ''
 # ---- history
 $h = New-History
 $d1 = [pscustomobject]@{ stale = $false; fetched_at = '2026-11-12T00:00:00Z'; weekly = $wk; session = $null }
@@ -394,6 +400,12 @@ $n2 = Stop-ProcessTree $t2.root.Id -SkipRoot; Start-Sleep -Milliseconds 700
 $alive2 = @($t2.kids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
 Check 'collector timeout: child left by an exited collector stopped' ($t2.kids.Count -ge 1 -and $t2.root.HasExited -and $alive2.Count -eq 0) "kids=$($t2.kids -join ',') alive=$($alive2 -join ',')"
 foreach ($id in @($t1.kids + $t2.kids)) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
+
+# ---- pills stay visible over shell overlays (#24)
+foreach ($fn in 'Initialize-Native') { foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $fn }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) } }
+Initialize-Native
+Check 'full screen: Start, Search, Task View and Alt+Tab never hide the pills' ([UsageWidget.Native]::IsShellSurface('Windows.UI.Core.CoreWindow', 'SearchHost') -and [UsageWidget.Native]::IsShellSurface('Windows.UI.Core.CoreWindow', 'StartMenuExperienceHost') -and [UsageWidget.Native]::IsShellSurface('XamlExplorerHostIslandWindow', 'explorer') -and [UsageWidget.Native]::IsShellSurface('MultitaskingViewFrame', '')) ''
+Check 'full screen: a game, video or the lock screen still hides them' (-not [UsageWidget.Native]::IsShellSurface('UnityWndClass', 'game') -and -not [UsageWidget.Native]::IsShellSurface('Chrome_WidgetWin_1', 'chrome') -and -not [UsageWidget.Native]::IsShellSurface('Windows.UI.Core.CoreWindow', 'LockApp')) ''
 
 $results | Format-Table -AutoSize -Wrap | Out-String -Width 220
 "PASS={0} FAIL={1}" -f @($results | Where-Object Result -eq 'PASS').Count, @($results | Where-Object Result -eq 'FAIL').Count

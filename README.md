@@ -14,8 +14,8 @@ Two small Windows taskbar widgets show how much of your weekly **Claude** and **
   <img src="docs/images/codex-card.png" width="330" alt="Codex usage card: 10% left this week, credits line, red pace box saying Too fast with the run-out time, weekly limit bar">
 </p>
 <p>
-  <img src="docs/images/claude-pill.png" height="44" alt="Claude pill on the taskbar: ring at 55%, 'claude · 23h 1m' until the reset">
-  <img src="docs/images/codex-pill.png" height="44" alt="Codex pill on the taskbar: ring at 10% with an orange border, 'codex · 5d 1h'">
+  <img src="docs/images/claude-pill.png" height="44" alt="Claude pill on the taskbar: ring at 55%, '55% claude' over 23h until the reset">
+  <img src="docs/images/codex-pill.png" height="44" alt="Codex pill on the taskbar: ring at 10% with an orange border, '10% codex' over 5d 1h">
 </p>
 
 ## What you get
