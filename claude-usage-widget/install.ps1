@@ -26,7 +26,7 @@ param(
 $ErrorActionPreference = 'Stop'
 if ($TaskLog) { try { Start-Transcript -LiteralPath $TaskLog -Force | Out-Null } catch { } }
 
-$Package      = @('claude-usage.ps1', 'claude-usage-widget.ps1', 'install.ps1', 'uninstall.ps1')
+$Package      = @('claude-usage.ps1', 'claude-usage-widget.ps1', 'install.ps1', 'uninstall.ps1', 'watchdog.ps1')
 $SourceDir    = $PSScriptRoot
 $InstallDir   = Join-Path $env:LOCALAPPDATA 'ClaudeUsageWidget'
 $WidgetPath   = Join-Path $InstallDir 'claude-usage-widget.ps1'
@@ -34,6 +34,7 @@ $Collector    = Join-Path $InstallDir 'claude-usage.ps1'
 $ShortcutPath = Join-Path ([Environment]::GetFolderPath('Startup')) 'Claude Usage Widget.lnk'
 $StartMenuPath = Join-Path ([Environment]::GetFolderPath('Programs')) 'Claude Usage Widget.lnk'
 $PsExe        = Join-Path $PSHOME 'powershell.exe'
+$WatchdogTask = 'Claude Usage Widget watchdog'
 $ShortcutArgs = ('-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}"' -f $WidgetPath)
 
 # Under -TaskLog the output goes to a transcript, which splits -NoNewline segments: write whole lines there.
@@ -210,7 +211,7 @@ foreach ($t in $stale) { Remove-Item -LiteralPath $t.FullName -Force -ErrorActio
 if ($stale.Count -gt 0) { Write-Ok ('Removed {0} leftover temp file(s)' -f $stale.Count) }
 
 # ------------------------------------------------------------------ 4
-Write-Step 4 'Creating the Startup shortcut (Claude Usage Widget.lnk)'
+Write-Step 4 'Creating the Startup shortcut (Claude Usage Widget.lnk) and the watchdog task'
 $shell = New-Object -ComObject WScript.Shell
 try {
     $lnk = $shell.CreateShortcut($ShortcutPath)
@@ -238,6 +239,22 @@ try {
         Write-Ok "Start menu: $StartMenuPath"
     } catch { Write-Note ('Start menu entry not created: {0}' -f $_.Exception.Message) }
 } finally { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell) }
+
+# Watchdog: a per-user task (no admin) that every 5 minutes restarts the widget if it died or hung, unless you chose
+# Exit or turned off Start with Windows. Windows 11 runs it in a headless console, so no window flashes.
+try {
+    $wdArgs = ('-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}"' -f (Join-Path $InstallDir 'watchdog.ps1'))
+    $conhost = Join-Path $env:SystemRoot 'System32\conhost.exe'
+    if ([Environment]::OSVersion.Version.Build -ge 22000 -and (Test-Path -LiteralPath $conhost)) {
+        $wdAction = New-ScheduledTaskAction -Execute $conhost -Argument ('--headless "{0}" {1}' -f $PsExe, $wdArgs) -WorkingDirectory $InstallDir
+    } else {
+        $wdAction = New-ScheduledTaskAction -Execute $PsExe -Argument $wdArgs -WorkingDirectory $InstallDir
+    }
+    $wdTrigger = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(1)) -RepetitionInterval (New-TimeSpan -Minutes 5)
+    $wdSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 2)
+    [void](Register-ScheduledTask -TaskName $WatchdogTask -Action $wdAction -Trigger $wdTrigger -Settings $wdSettings -Description 'Restarts the Claude usage widget if it stopped or hung (not after Exit or with Start with Windows off). Removed by uninstall.ps1.' -Force)
+    Write-Ok "Watchdog task: $WatchdogTask (every 5 minutes)"
+} catch { Write-Note ('Watchdog task not created: {0}' -f $_.Exception.Message) }
 
 # ------------------------------------------------------------------ 5
 Write-Step 5 'Starting the Claude widget'

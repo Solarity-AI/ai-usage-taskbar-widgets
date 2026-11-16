@@ -38,8 +38,8 @@ $notes = ($notes -replace '^[^\n]*\n', '').Trim()
 
 if (Test-Path -LiteralPath $dist) { Remove-Item -LiteralPath $dist -Recurse -Force }
 [void](New-Item -ItemType Directory -Path $dist)
-$widgets = @{ 'claude-usage-widget' = @('claude-usage-widget.ps1', 'claude-usage.ps1', 'install.ps1', 'uninstall.ps1')
-              'codex-usage-widget'  = @('codex-usage-widget.ps1', 'codex-usage.ps1', 'install.ps1', 'uninstall.ps1') }
+$widgets = @{ 'claude-usage-widget' = @('claude-usage-widget.ps1', 'claude-usage.ps1', 'install.ps1', 'uninstall.ps1', 'watchdog.ps1')
+              'codex-usage-widget'  = @('codex-usage-widget.ps1', 'codex-usage.ps1', 'install.ps1', 'uninstall.ps1', 'watchdog.ps1') }
 $launchers = @{ 'claude-usage-widget' = 'Install Claude widget.cmd'; 'codex-usage-widget' = 'Install Codex widget.cmd' }
 foreach ($l in $launchers.Values) { if (-not (Test-Path -LiteralPath (Join-Path $root $l))) { throw "Missing $l" } }
 

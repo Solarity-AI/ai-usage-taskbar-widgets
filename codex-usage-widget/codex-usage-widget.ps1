@@ -57,10 +57,12 @@ $script:SettingsPath  = Join-Path $script:AppDir 'settings.json'
 $script:HistoryPath   = Join-Path $script:AppDir 'history.json'
 $script:AlertsPath    = Join-Path $script:AppDir 'alerts.json'
 $script:LogPath       = Join-Path $script:AppDir 'widget.log'
+$script:HeartbeatPath = Join-Path $script:AppDir 'heartbeat'        # rewritten by the UI thread; watchdog.ps1 replaces a hung widget
+$script:ExitMarkerPath = Join-Path $script:AppDir 'exited-by-user'  # left by Exit: the watchdog keeps the widget closed
 $script:CollectorPath = Join-Path $PSScriptRoot $script:CollectorName
 $script:UninstallPath = Join-Path $PSScriptRoot 'uninstall.ps1'
 $script:ShortcutPath  = Join-Path ([Environment]::GetFolderPath('Startup')) ('{0} Usage Widget.lnk' -f $script:ProductName)
-$script:Version       = '1.1.0'          # release version (tools\package.ps1 and the release workflow check it)
+$script:Version       = '1.2.0'          # release version (tools\package.ps1 and the release workflow check it)
 $script:HomeUrl       = 'https://solarity-ai.github.io/ai-usage-taskbar-widgets/'
 $script:CollectorTimeoutSeconds = 120   # the collector may run the official CLI
 $script:AnchorGapPx   = 8               # physical pixels between neighbouring pills / the notification area
@@ -1519,6 +1521,24 @@ function Sync-Pills {
 
 # ---------------------------------------------------------------- data refresh (off the UI thread)
 
+function Stop-ProcessTree {
+    # Stops a process and every descendant (the collector may run the official CLI, which runs its own children).
+    # Works after the root has exited too: orphaned children still name it as their parent.
+    param([int]$RootId, [switch]$SkipRoot)   # -SkipRoot: the root already exited; stop only what it left behind
+    $all = @(Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId -ErrorAction SilentlyContinue)
+    $ids = New-Object System.Collections.ArrayList
+    [void]$ids.Add($RootId)
+    for ($i = 0; $i -lt $ids.Count; $i++) {
+        foreach ($c in $all) { if ($c.ParentProcessId -eq $ids[$i] -and $c.ProcessId -ne $PID -and -not $ids.Contains([int]$c.ProcessId)) { [void]$ids.Add([int]$c.ProcessId) } }
+    }
+    for ($i = $ids.Count - 1; $i -ge $(if ($SkipRoot) { 1 } else { 0 }); $i--) { try { Stop-Process -Id $ids[$i] -Force -ErrorAction Stop } catch { } }
+    return $ids.Count
+}
+
+function Write-Heartbeat {
+    try { [IO.File]::WriteAllText($script:HeartbeatPath, [DateTime]::UtcNow.ToString('o')) } catch { }
+}
+
 function Start-Refresh {
     param([bool]$Force = $false)
     if ($null -ne $script:Proc) { return }           # no overlapping refreshes
@@ -1569,9 +1589,10 @@ function Complete-Refresh {
     $p = $script:Proc
     if ($null -eq $p) { return }
     $elapsed = ([DateTime]::UtcNow - $script:ProcStarted).TotalSeconds
-    if (-not $p.HasExited) {
+    # A child left holding the output pipe keeps ProcOut open after the collector exits: time that out too.
+    if (-not $p.HasExited -or -not $script:ProcOut.IsCompleted) {
         if ($elapsed -lt $script:CollectorTimeoutSeconds) { return }
-        try { $p.Kill() } catch { }
+        try { [void](Stop-ProcessTree $p.Id -SkipRoot:$p.HasExited) } catch { }
         try { $p.Dispose() } catch { }
         $script:Proc = $null; $script:Refreshing = $false
         $script:CollectorFailure = 'The local collector timed out.'
@@ -1579,7 +1600,6 @@ function Complete-Refresh {
         Update-View
         return
     }
-    if (-not $script:ProcOut.IsCompleted) { return }
     $out = $script:ProcOut.Result
     $code = $p.ExitCode
     $p.Dispose()
@@ -2244,7 +2264,8 @@ function Initialize-Menu {
 
 function Stop-Widget {
     foreach ($t in @($script:PollTimer, $script:TickTimer, $script:PlaceTimer, $script:RenderTimer, $script:HideTimer)) { if ($null -ne $t) { $t.Stop() } }
-    if ($null -ne $script:Proc) { try { $script:Proc.Kill() } catch { } }
+    if ($null -ne $script:Proc) { try { [void](Stop-ProcessTree $script:Proc.Id) } catch { } }
+    try { [IO.File]::WriteAllText($script:ExitMarkerPath, 'Exit chosen in the menu') } catch { }   # the watchdog keeps it closed
     if ($script:HistoryDirty) { Save-History }
     try { $script:CardWindow.Close() } catch { }
     foreach ($p in @($script:Pills)) { try { $p.Win.Close() } catch { } }
@@ -2323,6 +2344,7 @@ function Start-Widget {
         # A long gap between 20-second ticks means the PC slept: refresh at once instead of waiting a full poll.
         if (($nowT - $script:LastRenderTick).TotalSeconds -ge 90) { Write-Log 'resumed after a pause; refreshing'; Start-Refresh $false }
         $script:LastRenderTick = $nowT
+        Write-Heartbeat
         # A pinned card closes by itself 90 s after the pointer last left the pills.
         $over = @($script:Pills | Where-Object { $_.Win.IsMouseOver }).Count -gt 0
         if ($over) { $script:LastPillHover = $nowT }
@@ -2332,6 +2354,8 @@ function Start-Widget {
     $script:LastRenderTick = [DateTime]::UtcNow
     $script:LastPillHover = [DateTime]::UtcNow
 
+    Remove-Item -LiteralPath $script:ExitMarkerPath -Force -ErrorAction SilentlyContinue   # started again: the watchdog may restart it
+    Write-Heartbeat
     Update-View
     Sync-Pills
     Start-Refresh $false

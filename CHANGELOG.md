@@ -2,6 +2,12 @@
 
 Each release is listed here, newest first. The version is `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1`; tagging `v<version>` publishes it as a GitHub release with downloadable zips.
 
+## 1.2.0 (2026-11-16)
+
+**Fixed:** a widget that Windows closed (for example as "not responding" after the PC woke from sleep) stayed gone until the next sign-in ([#23](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/23)). The installer now adds a per-user watchdog task that, every 5 minutes, starts the widget if it is not running and replaces one whose window stopped updating. It never restarts a widget you closed with *Exit*, with *Start with Windows* off, or after uninstalling. Run the installer again to get it.
+
+**Also fixed:** when the collector timed out, only the collector was stopped; the official CLI it started kept running. Now its whole process tree is stopped, and a child that holds the collector's output open no longer blocks every later refresh.
+
 ## 1.1.0 (2026-11-14)
 
 **Easier install:** the downloads now include **Install Claude widget.cmd** and **Install Codex widget.cmd**. Unzip and double-click; no terminal needed. The terminal steps now also explain the Windows 10 way to open one.

@@ -81,6 +81,13 @@ Say 'Claude Usage Widget - uninstaller'
 Set-Location -LiteralPath $env:USERPROFILE      # never hold the folder we are about to delete
 [Environment]::CurrentDirectory = $env:USERPROFILE   # Set-Location alone leaves the process directory inside it
 
+# 0) watchdog task first, so it cannot start the widget again while it is being removed
+$WatchdogTask = 'Claude Usage Widget watchdog'
+try {
+    if (Get-ScheduledTask -TaskName $WatchdogTask -ErrorAction SilentlyContinue) { Unregister-ScheduledTask -TaskName $WatchdogTask -Confirm:$false -ErrorAction Stop; Say '  OK   Removed the watchdog task' }
+    else { Say '  OK   No watchdog task' }
+} catch { Say "  NOTE Could not remove the task $WatchdogTask : $($_.Exception.Message)" }
+
 # 1) stop only this widget
 $procs = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine -match '(?i)[\\/"\s]claude-usage-widget\.ps1' })
