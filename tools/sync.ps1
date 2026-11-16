@@ -36,7 +36,7 @@ $re = [regex]'(?s)# >>> product.*?# <<< product'
 if (-not $re.IsMatch($src)) { throw 'product block not found in claude-usage-widget.ps1' }
 $w = $re.Replace($src, $block.Replace('$', '$$'), 1)
 $wanted[(Join-Path $codex 'codex-usage-widget.ps1')] = $w.Replace('    Claude usage taskbar widget (Windows PowerShell 5.1 + WPF).', '    Codex usage taskbar widget (Windows PowerShell 5.1 + WPF).')
-foreach ($f in 'install.ps1', 'uninstall.ps1') {
+foreach ($f in 'install.ps1', 'uninstall.ps1', 'watchdog.ps1') {
     $s = [IO.File]::ReadAllText((Join-Path $claude $f))
     $wanted[(Join-Path $codex $f)] = $s -creplace 'Claude', 'Codex' -creplace 'claude', 'codex' -creplace 'CLAUDE', 'CODEX'
 }

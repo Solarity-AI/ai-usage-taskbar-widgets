@@ -356,5 +356,44 @@ $si = Find-SignInCli
 $expected = Test-Path (Join-Path $env:USERPROFILE '.local\bin\claude.exe')
 Check 'sign in: Claude uses the official CLI "auth login"' ((-not $expected) -or ($si.args -eq 'auth login' -and $si.exe -like '*claude.exe')) "$($si.exe) $($si.args)"
 
+# ---- watchdog (#23): a widget that died or hung comes back; never after Exit, Start with Windows off or uninstall
+$src = [IO.File]::ReadAllText($Widget)
+$wdAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $Dir 'watchdog.ps1'), [ref]$tok, [ref]$err)
+foreach ($f in $wdAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-WatchdogAction' }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
+$ok = @{ Installed = $true; StartupOn = $true; ExitedByUser = $false; Running = $true; HeartbeatAge = 20; Responding = $true; WasStale = $false }
+function Wd($over) { $a = $ok.Clone(); foreach ($k in $over.Keys) { $a[$k] = $over[$k] }; (Get-WatchdogAction @a).action }
+Check 'watchdog: widget gone -> start it' ((Wd @{ Running = $false }) -eq 'start') (Wd @{ Running = $false })
+Check 'watchdog: healthy widget -> nothing' ((Wd @{}) -eq 'none') (Wd @{})
+Check 'watchdog: after Exit -> stays closed' ((Wd @{ Running = $false; ExitedByUser = $true }) -eq 'none') ''
+Check 'watchdog: Start with Windows off -> stays closed' ((Wd @{ Running = $false; StartupOn = $false }) -eq 'none') ''
+Check 'watchdog: uninstalled -> nothing' ((Wd @{ Running = $false; Installed = $false }) -eq 'none') ''
+Check 'watchdog: stale heartbeat once after sleep, responding -> wait (no restart)' ((Wd @{ HeartbeatAge = 3600 }) -eq 'none' -and (& { $a = $ok.Clone(); $a.HeartbeatAge = 3600; (Get-WatchdogAction @a).stale })) ''
+Check 'watchdog: stale twice in a row -> replace' ((Wd @{ HeartbeatAge = 600; WasStale = $true }) -eq 'replace') ''
+Check 'watchdog: stale and not responding -> replace' ((Wd @{ HeartbeatAge = 600; Responding = $false }) -eq 'replace') ''
+Check 'watchdog: not responding but heartbeat fresh -> nothing' ((Wd @{ Responding = $false }) -eq 'none') ''
+Check 'widget: Exit leaves the marker, start clears it, UI writes a heartbeat' ($src -match '(?s)function Stop-Widget \{.*?ExitMarkerPath.*?\n\}' -and $src -match 'Remove-Item -LiteralPath \$script:ExitMarkerPath' -and $src -match '(?s)RenderTimer\.add_Tick\(\{.*?Write-Heartbeat') ''
+Check 'widget: collector timeout also covers an exited collector whose output pipe is still held' ($src -match 'if \(-not \$p\.HasExited -or -not \$script:ProcOut\.IsCompleted\)') ''
+
+# ---- collector timeout stops the whole process tree (#23), including children left by an exited collector
+foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Stop-ProcessTree' }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
+$ps = Join-Path $PSHOME 'powershell.exe'
+function Get-Children([int]$id) { @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $id" -ErrorAction SilentlyContinue | ForEach-Object { [int]$_.ProcessId }) }
+function Start-Tree([int]$parentSeconds) {
+    $p = Start-Process -FilePath $ps -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile', '-Command', "Start-Process -FilePath '$ps' -WindowStyle Hidden -ArgumentList '-NoProfile','-Command','Start-Sleep 90'; Start-Sleep $parentSeconds")
+    $kids = @(); $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    while ($kids.Count -eq 0 -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 300; $kids = Get-Children $p.Id }
+    return @{ root = $p; kids = $kids }
+}
+$t1 = Start-Tree 90
+$n1 = Stop-ProcessTree $t1.root.Id; Start-Sleep -Milliseconds 700
+$alive1 = @(@($t1.root.Id) + $t1.kids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
+Check 'collector timeout: parent and child both stopped' ($t1.kids.Count -ge 1 -and $n1 -ge 2 -and $alive1.Count -eq 0) "kids=$($t1.kids -join ',') stopped=$n1 alive=$($alive1 -join ',')"
+$t2 = Start-Tree 2
+[void]$t2.root.WaitForExit(15000)
+$n2 = Stop-ProcessTree $t2.root.Id -SkipRoot; Start-Sleep -Milliseconds 700
+$alive2 = @($t2.kids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
+Check 'collector timeout: child left by an exited collector stopped' ($t2.kids.Count -ge 1 -and $t2.root.HasExited -and $alive2.Count -eq 0) "kids=$($t2.kids -join ',') alive=$($alive2 -join ',')"
+foreach ($id in @($t1.kids + $t2.kids)) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
+
 $results | Format-Table -AutoSize -Wrap | Out-String -Width 220
 "PASS={0} FAIL={1}" -f @($results | Where-Object Result -eq 'PASS').Count, @($results | Where-Object Result -eq 'FAIL').Count
