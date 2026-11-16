@@ -54,7 +54,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\claude-usage-widget\instal
 powershell -NoProfile -ExecutionPolicy Bypass -File .\codex-usage-widget\install.ps1
 ```
 
-Each installer copies the widget to `%LOCALAPPDATA%\ClaudeUsageWidget` (or `CodexUsageWidget`). It adds a Startup shortcut and a Start menu entry, starts the widget, and checks that live data arrives. Running it again updates the widget in place and keeps your settings. `-ExecutionPolicy Bypass` applies to that one command only; it changes no system setting.
+Each installer copies the widget to `%LOCALAPPDATA%\ClaudeUsageWidget` (or `CodexUsageWidget`). It adds a Startup shortcut, a Start menu entry and a scheduled task (`Claude Usage Widget watchdog`) that checks every 5 minutes and restarts the widget if it stopped or hung, starts the widget, and checks that live data arrives. Running it again updates the widget in place and keeps your settings. `-ExecutionPolicy Bypass` applies to that one command only; it changes no system setting.
 
 ## Uninstall
 
@@ -64,7 +64,7 @@ Right-click a pill → **Uninstall…**, or run:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\claude-usage-widget\uninstall.ps1
 ```
 
-This stops that widget and removes its folder, Startup shortcut and Start menu entry. Add `-KeepData` to keep settings and history. Your Claude or Codex sign-in is never touched.
+This stops that widget and removes its folder, Startup shortcut, Start menu entry and watchdog task. Add `-KeepData` to keep settings and history. Your Claude or Codex sign-in is never touched.
 
 ## How it works and what it reads
 
