@@ -4,6 +4,8 @@ Each release is listed here, newest first. The version is `$script:Version` in `
 
 ## Unreleased
 
+**Changed:** the pill, the card's big number and the alerts show the share **used**, not the share left: `31%` used instead of `69%` left. Alert thresholds are the same points, now named 50%, 75%, 90% and 95% used ([#48](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/48)).
+
 **Changed:** the pill now names the limit it shows: `weekly 4d 11h` or `5-hour 1h 23m` instead of `4d 11h` or `session 1h 23m` ([#42](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/42)).
 
 ## 1.3.1 (2026-11-16)

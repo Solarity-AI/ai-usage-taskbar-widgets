@@ -5,7 +5,7 @@
 [![Website](https://img.shields.io/website?url=https%3A%2F%2Fsolarity-ai.github.io%2Fai-usage-taskbar-widgets%2F&label=website)](https://solarity-ai.github.io/ai-usage-taskbar-widgets/)
 [![Windows 10 and 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4)](#requirements)
 
-Two small Windows taskbar widgets show how much of your weekly **Claude** and **Codex** allowance is left. They also show when the allowance runs out at your current pace. Everything runs on your own PC: no server, no telemetry, nothing to sign up for.
+Two small Windows taskbar widgets show how much of your weekly **Claude** and **Codex** allowance is used. They also show when the allowance runs out at your current pace. Everything runs on your own PC: no server, no telemetry, nothing to sign up for.
 
 **[Website](https://solarity-ai.github.io/ai-usage-taskbar-widgets/)** · **[Download the latest release](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest)** · [Changelog](CHANGELOG.md)
 
@@ -20,9 +20,9 @@ Two small Windows taskbar widgets show how much of your weekly **Claude** and **
 
 ## What you get
 
-- **A pill on the taskbar.** A ring shows the share of the weekly allowance left, with the time until the weekly reset (or today's budget). The edge turns orange or red when little is left.
+- **A pill on the taskbar.** A ring shows the share of the weekly allowance used, with the time until the weekly reset (or today's budget). The edge turns orange or red when little is left.
 - **A card on hover.** It shows the share left and a *Pace this week* box: *On pace*, *Cutting close* or *Too fast*, with the time the allowance runs out at your current rate. It also has a bar for every limit (weekly, 5-hour session, per-model limits) with its reset time, plus credits or extra usage when your plan has them. Click the pill to pin the card and refresh it.
-- **Alerts.** Windows notifications fire at 25% and 10% left, when the limit is reached, and when you are on track to run out before the reset. Thresholds are adjustable, and alerts can be snoozed for 1 hour, until tomorrow morning or until the weekly reset.
+- **Alerts.** Windows notifications fire at 75% and 90% used, when the limit is reached, and when you are on track to run out before the reset. Thresholds are adjustable, and alerts can be snoozed for 1 hour, until tomorrow morning or until the weekly reset.
 - **A right-click menu.** It has *Refresh now*, *Open usage page*, *Sign in again*, *Snooze alerts*, *Alerts*, *Pill shows*, *Refresh every*, *Compact pill*, *Show details* (a burn-up chart of the week and the full pace breakdown), *Show on every taskbar*, *Start with Windows*, *Uninstall* and *About* (version and website).
 - **Light and dark themes**, following Windows. Per-monitor DPI. The pills hide while a full-screen app is in front. Drag the main pill sideways to move it; the Codex pill sits next to the Claude pill.
 

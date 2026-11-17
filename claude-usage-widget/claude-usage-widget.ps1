@@ -3,7 +3,7 @@
     Claude usage taskbar widget (Windows PowerShell 5.1 + WPF).
 
 .DESCRIPTION
-    Small always-on-top pill on the taskbar showing the percentage of the WEEKLY allowance LEFT, with a
+    Small always-on-top pill on the taskbar showing the percentage of the WEEKLY allowance USED, with a
     pace forecast. Hover for details, click to pin the card, right-click for the menu (settings live there),
     drag the main pill horizontally to move it.
 
@@ -604,7 +604,7 @@ function Get-AlertsDue {
             $lowest = ($crossed | Measure-Object -Minimum).Minimum
             $when = ('Resets {0} (in {1}).' -f (Format-LocalTime $reset $Now), (Get-ResetText $reset $Now))
             if ($left -le 0) { $title = "$Product`: weekly limit reached" }
-            else { $title = ('{0}: {1} of the weekly limit left' -f $Product, (Format-Percent $left)) }
+            else { $title = ('{0}: {1} of the weekly limit used' -f $Product, (Format-UsedShare (100.0 - $left))) }
             $text = $when
             if ($null -ne $WeeklyPace -and $WeeklyPace.runs_out) { $text += (' At this speed it runs out {0}.' -f (Format-LocalTime $WeeklyPace.run_out_at $Now)) }
             [void]$out.Add([pscustomobject]@{ title = $title; text = $text; keys = @($crossed | ForEach-Object { "w:$rk`:$_" }) })
@@ -623,7 +623,7 @@ function Get-AlertsDue {
         $sh = [long][Math]::Round((ConvertTo-Unix $sr) / 3600.0)
         $sk = "s:$sh"
         if (-not (Test-AlertSent $Sent 's' $sh)) {
-            [void]$out.Add([pscustomobject]@{ title = ('{0}: 5-hour limit almost used ({1} left)' -f $Product, (Format-Percent $sl)); text = ('It resets {0} (in {1}).' -f (Format-LocalTime $sr $Now), (Get-ResetText $sr $Now)); keys = @($sk) })
+            [void]$out.Add([pscustomobject]@{ title = ('{0}: 5-hour limit almost used ({1} used)' -f $Product, (Format-UsedShare (100.0 - $sl))); text = ('It resets {0} (in {1}).' -f (Format-LocalTime $sr $Now), (Get-ResetText $sr $Now)); keys = @($sk) })
         }
     }
     return $out.ToArray()
@@ -1165,10 +1165,10 @@ $script:MenuXaml = @'
   <MenuItem x:Name="MenuAlerts" Header="_Alerts" Icon="&#xEA8F;">
     <MenuItem x:Name="MenuAlertsOn" Header="Show alerts" IsCheckable="True"/>
     <Separator/>
-    <MenuItem x:Name="MenuAlert50" Header="At 50% left" IsCheckable="True" Tag="50"/>
-    <MenuItem x:Name="MenuAlert25" Header="At 25% left" IsCheckable="True" Tag="25"/>
-    <MenuItem x:Name="MenuAlert10" Header="At 10% left" IsCheckable="True" Tag="10"/>
-    <MenuItem x:Name="MenuAlert5" Header="At 5% left" IsCheckable="True" Tag="5"/>
+    <MenuItem x:Name="MenuAlert50" Header="At 50% used" IsCheckable="True" Tag="50"/>
+    <MenuItem x:Name="MenuAlert25" Header="At 75% used" IsCheckable="True" Tag="25"/>
+    <MenuItem x:Name="MenuAlert10" Header="At 90% used" IsCheckable="True" Tag="10"/>
+    <MenuItem x:Name="MenuAlert5" Header="At 95% used" IsCheckable="True" Tag="5"/>
     <MenuItem x:Name="MenuAlertRunOut" Header="When it will run out before the reset" IsCheckable="True"/>
     <Separator/>
     <MenuItem x:Name="MenuAlertTest" Header="Send a test alert" Icon="&#xE724;"/>
@@ -1217,7 +1217,7 @@ $script:CardXaml = @'
       </Grid>
       <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
         <TextBlock x:Name="CardHero" FontFamily="Segoe UI Variable Display, Segoe UI" FontSize="30" Text="..." VerticalAlignment="Bottom"/>
-        <TextBlock x:Name="CardHeroLabel" Text="left this week" FontSize="12" Margin="6,0,0,6" VerticalAlignment="Bottom"/>
+        <TextBlock x:Name="CardHeroLabel" Text="used this week" FontSize="12" Margin="6,0,0,6" VerticalAlignment="Bottom"/>
       </StackPanel>
       <StackPanel x:Name="HeroLines"/>
       <Border x:Name="StatusBar" CornerRadius="7" BorderThickness="1" Padding="10,6,10,8" Margin="0,10,0,0" Visibility="Collapsed">
@@ -2089,7 +2089,7 @@ function Update-View {
             $script:PillState = $st
             foreach ($p in @($script:Pills)) { Update-PillVisual $p }
             $ui.CardHero.Text = $st.hero; $ui.CardHero.Foreground = $T.grayB; $ui.CardHero.Opacity = 1.0
-            $ui.CardHeroLabel.Text = $(if ($script:Refreshing) { "reading $($script:ProductName) usage..." } else { 'left this week' })
+            $ui.CardHeroLabel.Text = $(if ($script:Refreshing) { "reading $($script:ProductName) usage..." } else { 'used this week' })
             foreach ($n in 'PlanBadge', 'PaceBox', 'ChartPanel', 'PaceLines', 'TopDivider') { $ui[$n].Visibility = 'Collapsed' }
             $ui.StatusText.Text = $script:CollectorFailure
             $ui.StatusLabel.Text = 'NOT AVAILABLE'
@@ -2106,11 +2106,11 @@ function Update-View {
         $stale = ($d.stale -eq $true) -or ($null -ne $script:CollectorFailure)
         $authCodes = @('auth_expired', 'auth_missing', 'auth_unreadable', 'auth_malformed', 'auth_mode_unsupported', 'http_401', 'http_403')
         $needsSignIn = ($null -ne $d.error -and $authCodes -contains [string]$d.error.code)
-        $pct = Format-Percent $left
+        $pct = $(if ($null -eq $left) { Format-Percent $null } else { Format-UsedShare (100.0 - $left) })   # the pill and hero show the share used
         $st.hero = $pct; $st.stale = $stale
         $st.opacity = $(if ($stale) { 0.6 } else { 1.0 })
         $st.style = $(if ($stale) { [Windows.FontStyles]::Italic } else { [Windows.FontStyles]::Normal })
-        $st.fraction = $(if ($null -eq $left) { $null } else { $left / 100.0 }); $st.ring = $T[$level + 'RingB']
+        $st.fraction = $(if ($null -eq $left) { $null } else { (100.0 - $left) / 100.0 }); $st.ring = $T[$level + 'RingB']
         if ($level -ne 'green' -and $level -ne 'gray' -and -not $stale) { $st.border = $T[$level + 'EdgeB'] }   # the pill edge warns
 
         # Pace, today's budget and the chart, from the latest reading and the local history.
@@ -2132,7 +2132,7 @@ function Update-View {
         }
         if ($script:Refreshing -and $script:ManualRefresh) { $subRight = 'refreshing' + [char]0x2026; $st.subBrush = $T.pillDimB }
         $st.sub = $subRight
-        $st.a11y = ('{0}: {1} of the {2} limit left; {3}' -f $script:WindowTitle, $pct, $(if ($bind.kind -eq 'session') { '5-hour session' } else { 'weekly' }), $subRight)
+        $st.a11y = ('{0}: {1} of the {2} limit used; {3}' -f $script:WindowTitle, $pct, $(if ($bind.kind -eq 'session') { '5-hour session' } else { 'weekly' }), $subRight)
         $script:PillState = $st
         foreach ($p in @($script:Pills)) { Update-PillVisual $p }
 
@@ -2140,9 +2140,9 @@ function Update-View {
         $ui.CardHero.Text = $pct
         $ui.CardHero.Foreground = $T[$level + 'B']
         $exhausted = ($null -ne $left -and $left -le 0)
-        $ui.CardHeroLabel.Text = $(if ($bind.kind -eq 'session') { ('left in this {0}-hour session' -f [Math]::Round([double]$bind.window.window_seconds / 3600.0)) }
+        $ui.CardHeroLabel.Text = $(if ($bind.kind -eq 'session') { ('used in this {0}-hour session' -f [Math]::Round([double]$bind.window.window_seconds / 3600.0)) }
                                    elseif ($null -eq $left) { 'weekly data unavailable' }
-                                   elseif ($tag -eq 'claude') { "left this week $dot all models" } else { 'left this week' })
+                                   elseif ($tag -eq 'claude') { "used this week $dot all models" } else { 'used this week' })
         if ($d.plan) {
             $ui.PlanText.Text = (Get-Culture).TextInfo.ToTitleCase(([string]$d.plan).ToLowerInvariant())
             $ui.PlanBadge.Visibility = 'Visible'
