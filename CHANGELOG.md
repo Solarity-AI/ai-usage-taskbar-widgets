@@ -2,6 +2,10 @@
 
 Each release is listed here, newest first. The version is `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1`; tagging `v<version>` publishes it as a GitHub release with downloadable zips.
 
+## Unreleased
+
+**Changed:** the pill now names the limit it shows: `weekly 4d 11h` or `5-hour 1h 23m` instead of `4d 11h` or `session 1h 23m` ([#42](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/42)).
+
 ## 1.3.1 (2026-11-16)
 
 Fixes from a QA bug hunt.
