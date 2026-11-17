@@ -5,3 +5,6 @@ install-last.log
 
 # Release downloads built by tools\package.ps1
 dist/
+
+# macOS build output
+macos/build/

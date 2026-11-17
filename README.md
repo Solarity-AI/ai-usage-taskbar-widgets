@@ -39,6 +39,8 @@ Two small Windows taskbar widgets show how much of your weekly **Claude** and **
 
 Install one widget or both; they are independent.
 
+**On a Mac?** The Claude widget also comes as a native menu-bar app: see [macos/README.md](macos/README.md).
+
 ## Install
 
 1. Download [**ai-usage-taskbar-widgets.zip**](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest/download/ai-usage-taskbar-widgets.zip) from the [latest release](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest), or `claude-usage-widget.zip` or `codex-usage-widget.zip` for just one widget. Unzip it anywhere. To check the download, compare `Get-FileHash` with the release's `SHA256SUMS.txt`.
