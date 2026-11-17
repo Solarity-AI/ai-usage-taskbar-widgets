@@ -85,8 +85,8 @@ func rowItem(title: String, value: String, fill: Double, color: NSColor, note: S
         n.frame = NSRect(x: 16, y: y, width: width - 32, height: h); v.addSubview(n); y += h + 3
     }
     bar.frame = NSRect(x: 16, y: y, width: width - 32, height: 6); v.addSubview(bar); y += 6 + 4
-    t.frame = NSRect(x: 16, y: y, width: 200, height: 17); v.addSubview(t)
-    val.frame = NSRect(x: width - 16 - 100, y: y, width: 100, height: 17); v.addSubview(val); y += 17 + 4
+    t.frame = NSRect(x: 16, y: y, width: 160, height: 17); v.addSubview(t)
+    val.frame = NSRect(x: width - 16 - 128, y: y, width: 128, height: 17); v.addSubview(val); y += 17 + 4
     v.frame = NSRect(x: 0, y: 0, width: width, height: y)
     let item = NSMenuItem()
     item.view = v
@@ -141,6 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var lastRenewal = Date.distantPast
     var timer: Timer?
     var busy = false
+    var nativeNotifications = false
 
     func applicationDidFinishLaunching(_ n: Notification) {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -148,7 +149,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         menu.delegate = self
         item.menu = menu
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { ok, err in
+            DispatchQueue.main.async { self.nativeNotifications = ok }
+            log("notifications \(ok ? "allowed" : "not allowed, using osascript instead")\(err.map { ": \($0.localizedDescription)" } ?? "")")
+        }
         log("started v\(appVersion)")
         render()
         refresh(force: true)
@@ -233,13 +237,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// 15 days of readings per limit; they drive the pace forecast.
     func record(_ r: Reading) {
-        let now = r.fetchedAt.timeIntervalSince1970
-        for w in [r.weekly, r.session].compactMap({ $0 }) {
-            guard let reset = w.resetsAt else { continue }
-            var s = history[w.id] ?? []
-            if let last = s.last, now - last.t < 240, abs(last.r - reset.timeIntervalSince1970) < 3600 { s.removeLast() }
-            s.append(Sample(t: now, u: w.used, r: reset.timeIntervalSince1970))
-            history[w.id] = s.filter { now - $0.t <= 15 * 86400 }
+        let t = r.fetchedAt.timeIntervalSince1970
+        for w in [r.weekly, r.session].compactMap({ $0 }) + r.scoped {
+            history[w.id] = addSample(history[w.id] ?? [], t: t, window: w)
         }
         saveJSON(history, "history.json")
     }
@@ -270,11 +270,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func notify(_ title: String, _ body: String) {
+        if !nativeNotifications {
+            // An ad-hoc signed app may not post through UserNotifications; macOS's own "display notification" can.
+            // Title and body go in as argv, never into the script text.
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            p.arguments = ["-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run", title, body]
+            p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+            do { try p.run(); log("alert (osascript): \(title)") } catch { log("alert not shown: \(error.localizedDescription)") }
+            return
+        }
         let c = UNMutableNotificationContent()
         c.title = title
         c.body = body
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
-        log("alert: \(title)")
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil)) { err in
+            log("alert: \(title)" + (err.map { " (not shown: \($0.localizedDescription))" } ?? ""))
+        }
     }
 
     // MARK: Rendering
@@ -319,9 +330,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 menu.addItem(rowItem(title: windowLabel(w), value: "\(formatPct(w.left)) left", fill: w.used / 100, color: colorFor(left: w.left), note: note))
             }
             if let ex = r.extra, ex.enabled == true, let u = ex.utilization {
-                var note = "Extra usage on"
-                if let used = ex.usedCredits, let lim = ex.monthlyLimit { note += String(format: " · %.2f of %.2f this month", used / 100, lim / 100) }
-                menu.addItem(rowItem(title: "Extra usage", value: "\(formatPct(u)) used", fill: u / 100, color: colorFor(left: 100 - u), note: note))
+                menu.addItem(rowItem(title: "Extra usage", value: "\(formatPct(u)) used", fill: u / 100, color: colorFor(left: 100 - u),
+                                     note: "\(formatPct(u)) of the monthly limit used"))
             }
             let f = DateFormatter(); f.dateFormat = "HH:mm"
             menu.addItem(textItem("Updated \(f.string(from: r.fetchedAt))" + (isStale ? " · not up to date" : "")))
@@ -331,7 +341,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(action("Refresh now", #selector(refreshNow)))
         menu.addItem(action("Open usage page", #selector(openUsage)))
-        if lastError?.needsSignIn == true { menu.addItem(action("Sign in again…", #selector(signIn))) }
+        if lastError?.needsSignIn == true {
+            menu.addItem(action(findClaudeCLI() == nil ? "Install Claude Code…" : "Sign in again…", #selector(signIn)))
+        }
         let every = NSMenuItem(title: "Refresh every", action: nil, keyEquivalent: "")
         let sub = NSMenu()
         for m in [1.0, 2, 5, 10] {
@@ -366,11 +378,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if FileManager.default.fileExists(atPath: launchAgentURL.path) { try? FileManager.default.removeItem(at: launchAgentURL) } else { writeLaunchAgent() }
     }
     @objc func signIn() {
-        // Opens Terminal running Claude Code, whose own sign-in renews the Keychain item; the widget never signs in itself.
-        let cmd = findClaudeCLI()?.path ?? "claude"
-        let script = "tell application \"Terminal\"\nactivate\ndo script \"'\(cmd)'\"\nend tell"
-        var err: NSDictionary?
-        NSAppleScript(source: script)?.executeAndReturnError(&err)
+        // Claude Code's own sign-in renews the Keychain item; the widget never signs in itself. A .command file
+        // opens in Terminal without Apple Events permission. With no CLI installed, the install page opens instead.
+        guard let cli = findClaudeCLI() else {
+            log("sign in: Claude Code CLI not found; opening the install page")
+            NSWorkspace.shared.open(URL(string: "https://docs.anthropic.com/en/docs/claude-code/setup")!)
+            return
+        }
+        let f = dataDir.appendingPathComponent("sign-in.command")
+        let quoted = "'" + cli.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let script = "#!/bin/bash\necho 'Sign in to Claude Code with your Claude account (type /login if it does not ask), then close this window.'\n\(quoted)\n"
+        do {
+            try script.write(to: f, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: f.path)
+            let ok = NSWorkspace.shared.open(f)
+            log("sign in: opened Terminal with Claude Code (\(ok ? "ok" : "failed"))")
+        } catch {
+            log("sign in: could not write sign-in.command: \(error.localizedDescription)")
+        }
         lastRenewal = .distantPast
         DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in self?.refresh(force: true) }
     }

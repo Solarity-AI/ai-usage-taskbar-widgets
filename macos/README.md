@@ -69,7 +69,7 @@ Local files live in `~/Library/Application Support/ClaudeUsageWidget/`:
 | `./macos/build.sh` | Builds `macos/build/Claude Usage.app` |
 | `./macos/test.sh` | Builds, runs `--self-test` (parsing and pace), then one-shot readings against a local mock of the usage endpoint: a 200, 401, 429, HTML, a redirect, and the headers sent. Fake sign-in, no network |
 
-The app binary also takes `--once` (one live reading as JSON) and `--version`.
+The app binary also takes `--once` (one live reading as JSON), `--render-preview <png> --from <response.json>` (draws the menu rows offscreen, a layout check) and `--version`.
 
 If the Command Line Tools have a stale `usr/include/swift/module.modulemap` ("redefinition of module 'SwiftBridging'"), `build.sh` hides it through a VFS overlay. Nothing on disk changes.
 

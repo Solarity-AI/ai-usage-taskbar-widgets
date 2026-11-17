@@ -356,6 +356,17 @@ func paceInfo(_ w: LimitWindow?, samples: [Sample], now: Date = Date()) -> Pace?
     return p
 }
 
+/// One reading per window at most every 5 minutes (and at every reset); older than 15 days dropped.
+/// Same rule as Add-WindowSample in claude-usage-widget.ps1.
+func addSample(_ list: [Sample], t: Double, window w: LimitWindow) -> [Sample] {
+    guard let reset = w.resetsAt?.timeIntervalSince1970 else { return list }
+    if let last = list.last {
+        if t <= last.t { return list }
+        if abs(last.r - reset) <= 3600 && t - last.t < 300 { return list }
+    }
+    return (list + [Sample(t: t, u: 100 - w.left, r: reset)]).filter { t - $0.t <= 15 * 86400 }
+}
+
 enum PaceLevel { case green, amber, red, gray }
 struct PaceSummary { var status: String; var level: PaceLevel; var text: String }
 

@@ -76,6 +76,17 @@ func selfTest() -> Int32 {
     w.used = 1
     check("first hour of the week is Too early to tell", paceSummary(paceInfo(w, samples: [], now: now), now: now)?.status == "Too early to tell")
 
+    // History: 3 h of 2-minute readings keep one sample per 5 minutes, enough for a recent rate.
+    var hist: [Sample] = []
+    var hw = LimitWindow(id: "seven_day", name: "", kind: "weekly", used: 20, windowSeconds: weekSeconds, resetsAt: reset)
+    for i in 0...90 {
+        hw.used = 20 + Double(i) * 0.1
+        hist = addSample(hist, t: now.timeIntervalSince1970 - Double(90 - i) * 120, window: hw)
+    }
+    check("2-minute readings thinned to 5-minute samples (\(hist.count))", hist.count >= 30 && hist.count <= 40)
+    check("history gives a recent rate", paceInfo(hw, samples: hist, now: now).map { $0.rate != nil && abs($0.rate! - 3) < 0.5 } == true)
+    check("older readings never added", addSample(hist, t: now.timeIntervalSince1970 - 99999, window: hw).count == hist.count)
+
     check("span 2d 3h", formatSpan(hours: 51) == "2d 3h")
     check("span 45m", formatSpan(hours: 0.75) == "45m")
     check("Retry-After seconds", retryAfterSeconds("120") == 120)
@@ -115,6 +126,46 @@ if let f = argValue("--parse") {
     printJSON(r); exit(0)
 }
 if args.contains("--once") { exit(once()) }
+if let png = argValue("--render-preview"), let f = argValue("--from") {
+    // Draws the menu's rows for a saved usage response into a PNG (layout check, no menu bar needed).
+    guard let d = FileManager.default.contents(atPath: f), let r = parseUsage(d) else { print("unexpected response"); exit(1) }
+    _ = NSApplication.shared
+    let del = AppDelegate()
+    del.reading = r; del.plan = "max"; del.history = [:]
+    let menu = NSMenu()
+    del.menuNeedsUpdate(menu)
+    var views: [NSView] = []
+    for i in menu.items {
+        if let v = i.view { views.append(v) }
+        else if i.isSeparatorItem { views.append(NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 9))) }
+        else { let t = label("   " + i.title + (i.submenu != nil ? "  ▸" : "") + (i.state == .on ? "  ✓" : "")); t.frame = NSRect(x: 0, y: 2, width: 320, height: 18)
+               let v = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 22)); v.addSubview(t); views.append(v) }
+    }
+    let h = views.reduce(0) { $0 + $1.frame.height }
+    // Each row is drawn on its own (as NSMenu hosts it), then stacked into one image.
+    let scale: CGFloat = 2
+    let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(320 * scale), pixelsHigh: Int(h * scale), bitsPerSample: 8,
+                               samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+    rep.size = NSSize(width: 320, height: h)
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+    NSAppearance(named: .aqua)!.performAsCurrentDrawingAppearance {
+        NSColor.windowBackgroundColor.setFill()
+        NSRect(x: 0, y: 0, width: 320, height: h).fill()
+        var y = h
+        for v in views {
+            y -= v.frame.height
+            v.appearance = NSAppearance(named: .aqua)
+            let r = v.bitmapImageRepForCachingDisplay(in: v.bounds)!
+            v.cacheDisplay(in: v.bounds, to: r)
+            r.draw(in: NSRect(x: 0, y: y, width: 320, height: v.frame.height))
+        }
+    }
+    NSGraphicsContext.restoreGraphicsState()
+    try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: png))
+    print("wrote \(png) (\(Int(h)) pt tall)")
+    exit(0)
+}
 if args.contains("--version") { print(appVersion); exit(0) }
 
 let app = NSApplication.shared
