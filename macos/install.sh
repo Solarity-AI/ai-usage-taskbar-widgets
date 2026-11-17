@@ -46,7 +46,7 @@ fi
 echo
 result="$("$app/Contents/MacOS/ClaudeUsage" --once 2>&1)"
 if echo "$result" | grep -q '"weekly"'; then
-  echo "${green}✅ Live usage read: $(echo "$result" | python3 -I -c 'import json,sys; w=json.load(sys.stdin)["weekly"]; print("%g%% of the week left" % (100 - w["used"]))')${off}"
+  echo "${green}✅ Live usage read: $(echo "$result" | python3 -I -c 'import json,sys; w=json.load(sys.stdin)["weekly"]; print("%g%% of the week used" % w["used"])')${off}"
 else
   echo "${yellow}⚠ No live data yet: $(echo "$result" | sed -n 's/.*"error":"\(.*\)"}/\1/p' | sed 's/\\"/"/g')${off}"
   echo "${yellow}  If macOS asks whether \"security\" may read \"Claude Code-credentials\", choose Always Allow.${off}"

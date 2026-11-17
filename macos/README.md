@@ -1,13 +1,13 @@
 # Claude usage widget for macOS
 
-A native menu-bar version of the Claude widget for macOS 13 or later. It shows a ring and the share left of the limit that runs out first (`61% wk · 1d 14h`, or `40% 5h · 2h` when the 5-hour session is tighter). Its menu shows:
+A native menu-bar version of the Claude widget for macOS 13 or later. It shows a ring and the share used of the limit that runs out first (`39% wk · 1d 14h`, or `60% 5h · 2h` when the 5-hour session is tighter). Its menu shows:
 
-- the share of the week left and your plan
+- the share of the week used and your plan
 - a *Pace this week* row: *On pace*, *Cutting close*, *Too fast* or *Limit reached*, with the time the allowance runs out at your current rate
 - a bar for each limit (weekly, 5-hour session, per-model limits) with its reset time, plus extra usage when it is on
-- *Refresh now*, *Open usage page*, *Sign in again…* (only when needed), *Refresh every*, *Alerts at 25% and 10% left*, *Start at login*, *Open data folder* and *Quit*
+- *Refresh now*, *Open usage page*, *Sign in again…* (only when needed), *Refresh every*, *Alerts at 75% and 90% used*, *Start at login*, *Open data folder* and *Quit*
 
-Notifications fire at 25% and 10% of the week left, when the limit is reached, and when you are on track to run out before the reset.
+Notifications fire at 75% and 90% of the week used, when the limit is reached, and when you are on track to run out before the reset.
 
 Codex is Windows-only for now.
 
