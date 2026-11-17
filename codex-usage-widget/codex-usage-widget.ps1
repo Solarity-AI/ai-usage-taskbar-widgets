@@ -2120,11 +2120,11 @@ function Update-View {
         $budget = $(if ($null -ne $weekly) { Get-DailyBudget $weekly $wSamples $now } else { $null })
 
         $reset = $(if ($null -ne $weekly) { Get-ResetText $weekly.resets_at $now } else { $null })
-        $subRight = $reset
+        $subRight = $(if ($reset) { 'weekly ' + $reset } else { $null })   # name the limit: the pill shows only one
         if ($null -eq $weekly) {
             $subRight = $(if (@($d.reset_passed) -contains 'weekly') { 'reset, refreshing' } else { 'unavailable' })
         } elseif (-not $subRight) { $subRight = 'reset unknown' }
-        if ($bind.kind -eq 'session') { $subRight = 'session ' + (Get-ResetText $bind.window.resets_at $now) }
+        if ($bind.kind -eq 'session') { $subRight = ('{0}-hour {1}' -f [Math]::Round([double]$bind.window.window_seconds / 3600.0), (Get-ResetText $bind.window.resets_at $now)) }
         if ($needsSignIn) { $subRight = 'sign in needed'; $st.subBrush = $T.warnB }
         elseif (-not $stale -and $bind.kind -eq 'weekly' -and $script:Settings.pill -eq 'budget' -and $null -ne $budget) {
             $subRight = ('today {0} of {1}%' -f (Format-Share $budget.used_today), (Format-Share $budget.budget))
