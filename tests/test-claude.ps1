@@ -301,18 +301,18 @@ $rk = [long][Math]::Round($rU / 3600.0)
 $dat = { param($u, $su = $null, [bool]$stale = $false) [pscustomobject]@{ stale = $stale; weekly = [pscustomobject]@{ used = $u; window_seconds = 604800; resets_at = '2026-11-15T12:00:00Z' }; session = $(if ($null -ne $su) { [pscustomobject]@{ used = $su; window_seconds = 18000; resets_at = '2026-11-12T02:00:00Z' } } else { $null }) } }
 $sent = @{}
 $a1 = @(Get-AlertsDue (& $dat 89) $null $aset $sent 'Claude' $nowP)
-Check 'alerts: 11% left -> one alert, marks the 25% threshold' ($a1.Count -eq 1 -and $a1[0].title -eq 'Claude: 11% of the weekly limit left' -and (@($a1[0].keys) -join ',') -eq "w:$rk`:25") "$($a1[0].title) | $($a1[0].keys -join ',')"
+Check 'alerts: 11% left -> one alert, marks the 25% threshold' ($a1.Count -eq 1 -and $a1[0].title -eq 'Claude: 89% of the weekly limit used' -and (@($a1[0].keys) -join ',') -eq "w:$rk`:25") "$($a1[0].title) | $($a1[0].keys -join ',')"
 foreach ($k in $a1[0].keys) { $sent[$k] = 1 }
 Check 'alerts: same level again -> nothing' (@(Get-AlertsDue (& $dat 89.5) $null $aset $sent 'Claude' $nowP).Count -eq 0) ''
 $a2 = @(Get-AlertsDue (& $dat 92) $null $aset $sent 'Claude' $nowP)
-Check 'alerts: crossing 10% -> one more alert' ($a2.Count -eq 1 -and $a2[0].title -match '8% of the weekly' -and (@($a2[0].keys) -contains "w:$rk`:10")) ($a2 | ForEach-Object { $_.title })
+Check 'alerts: crossing 10% -> one more alert' ($a2.Count -eq 1 -and $a2[0].title -match ': 92% of the weekly limit used' -and (@($a2[0].keys) -contains "w:$rk`:10")) ($a2 | ForEach-Object { $_.title })
 $a3 = @(Get-AlertsDue (& $dat 95) $null $aset @{} 'Claude' $nowP)
 Check 'alerts: first reading already below 10% -> a single alert, both thresholds marked' ($a3.Count -eq 1 -and @($a3[0].keys).Count -eq 2) ($a3[0].keys -join ',')
 $fastP = Get-PaceInfo ([pscustomobject]@{ used = 60; window_seconds = 604800; resets_at = '2026-11-15T12:00:00Z' }) @() $nowP
 $a4 = @(Get-AlertsDue (& $dat 60) $fastP $aset @{} 'Claude' $nowP)
 Check 'alerts: on track to run out early (28 h before reset) -> run-out alert' ($a4.Count -eq 1 -and $a4[0].title -eq 'Claude: on track to run out early' -and $a4[0].text -match 'about 11% a day') "$($a4[0].title) | $($a4[0].text)"
 $a5 = @(Get-AlertsDue (& $dat 20 92) $null $aset @{} 'Claude' $nowP)
-Check 'alerts: 5-hour window at 8% left -> alert' ($a5.Count -eq 1 -and $a5[0].title -match '5-hour limit almost used \(8% left\)') ($a5 | ForEach-Object { $_.title })
+Check 'alerts: 5-hour window at 8% left -> alert' ($a5.Count -eq 1 -and $a5[0].title -match '5-hour limit almost used \(92% used\)') ($a5 | ForEach-Object { $_.title })
 $aoff = ConvertTo-Settings ('{"alerts":false}' | ConvertFrom-Json) 60
 # #36 regression: the reported reset drifting across :30 is still the same window (no second alert)
 $datR = { param($u, $reset) [pscustomobject]@{ stale = $false; weekly = [pscustomobject]@{ used = $u; window_seconds = 604800; resets_at = $reset }; session = $null } }
