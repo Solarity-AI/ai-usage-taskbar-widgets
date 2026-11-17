@@ -305,7 +305,7 @@ Check 'alerts: 11% left -> one alert, marks the 25% threshold' ($a1.Count -eq 1 
 foreach ($k in $a1[0].keys) { $sent[$k] = 1 }
 Check 'alerts: same level again -> nothing' (@(Get-AlertsDue (& $dat 89.5) $null $aset $sent 'Claude' $nowP).Count -eq 0) ''
 $a2 = @(Get-AlertsDue (& $dat 92) $null $aset $sent 'Claude' $nowP)
-Check 'alerts: crossing 10% -> one more alert' ($a2.Count -eq 1 -and $a2[0].title -match '8% of the weekly' -and (@($a2[0].keys) -contains "w:$rk`:10")) ($a2 | ForEach-Object { $_.title })
+Check 'alerts: crossing 10% -> one more alert' ($a2.Count -eq 1 -and $a2[0].title -match ': 92% of the weekly limit used' -and (@($a2[0].keys) -contains "w:$rk`:10")) ($a2 | ForEach-Object { $_.title })
 $a3 = @(Get-AlertsDue (& $dat 95) $null $aset @{} 'Claude' $nowP)
 Check 'alerts: first reading already below 10% -> a single alert, both thresholds marked' ($a3.Count -eq 1 -and @($a3[0].keys).Count -eq 2) ($a3[0].keys -join ',')
 $fastP = Get-PaceInfo ([pscustomobject]@{ used = 60; window_seconds = 604800; resets_at = '2026-11-15T12:00:00Z' }) @() $nowP
