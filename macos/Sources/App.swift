@@ -105,20 +105,20 @@ func textItem(_ s: String, size: CGFloat = 11, color: NSColor = .secondaryLabelC
     return item
 }
 
-/// Ring icon for the menu bar: share left of the binding limit.
-func ringImage(left: Double?, stale: Bool) -> NSImage {
+/// Ring icon for the menu bar: share used of the binding limit, coloured by the share left.
+func ringImage(used: Double?, stale: Bool) -> NSImage {
     let size = NSSize(width: 16, height: 16)
     let img = NSImage(size: size, flipped: false) { rect in
         let c = NSPoint(x: rect.midX, y: rect.midY), radius: CGFloat = 6.25
         let track = NSBezierPath(); track.appendArc(withCenter: c, radius: radius, startAngle: 0, endAngle: 360)
         track.lineWidth = 2.5
         NSColor.tertiaryLabelColor.setStroke(); track.stroke()
-        if let l = left, l > 0 {
+        if let u = used, u > 0 {
             let arc = NSBezierPath()
-            arc.appendArc(withCenter: c, radius: radius, startAngle: 90, endAngle: 90 - CGFloat(360 * min(100, l) / 100), clockwise: true)
+            arc.appendArc(withCenter: c, radius: radius, startAngle: 90, endAngle: 90 - CGFloat(360 * min(100, u) / 100), clockwise: true)
             arc.lineWidth = 2.5
             arc.lineCapStyle = .round
-            (stale ? NSColor.secondaryLabelColor : colorFor(left: l)).setStroke(); arc.stroke()
+            (stale ? NSColor.secondaryLabelColor : colorFor(left: 100 - u)).setStroke(); arc.stroke()
         }
         return true
     }
@@ -256,7 +256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             for t in settings.alertAt.sorted() where w.left <= t {
                 let k = "\(Int(t))"
-                if !st.fired.contains(k) { st.fired.append(contentsOf: settings.alertAt.filter { $0 >= t }.map { "\(Int($0))" }); send = ("Claude: \(formatPct(w.left)) of the week left", resetText) }
+                if !st.fired.contains(k) { st.fired.append(contentsOf: settings.alertAt.filter { $0 >= t }.map { "\(Int($0))" }); send = ("Claude: \(formatPct(w.used)) of the week used", resetText) }
                 break
             }
             if let p = paceSummary(paceInfo(w, samples: history[w.id] ?? [])), p.status == "Too fast", !st.fired.contains("pace") {
@@ -299,13 +299,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let button = item.button else { return }
         if let r = reading, let b = bindingLimit(r) {
             let tag = b.kind == "session" ? "5h" : "wk"
-            var title = " \(formatPct(b.left)) \(tag)"
+            var title = " \(formatPct(b.used)) \(tag)"
             if let reset = b.resetsAt, reset > Date() { title += " · \(formatSpan(hours: reset.timeIntervalSinceNow / 3600))" }
             if isStale { title += " ⚠" }
-            button.image = ringImage(left: b.left, stale: isStale)
+            button.image = ringImage(used: b.used, stale: isStale)
             button.title = title
         } else {
-            button.image = ringImage(left: nil, stale: true)
+            button.image = ringImage(used: nil, stale: true)
             button.title = lastError?.needsSignIn == true ? " Sign in" : " …"
         }
         button.toolTip = lastError?.message ?? "Claude usage"
@@ -316,8 +316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let e = lastError { menu.addItem(textItem((e.needsSignIn ? "⚠ " : "⚠ ") + e.message, size: 12, color: .systemOrange)) }
         if let r = reading {
             if let w = r.weekly {
-                let left = w.left
-                menu.addItem(textItem("\(formatPct(left)) left this week" + (plan.map { " · \($0.capitalized) plan" } ?? ""), size: 15, color: .labelColor, weight: .semibold))
+                menu.addItem(textItem("\(formatPct(w.used)) used this week" + (plan.map { " · \($0.capitalized) plan" } ?? ""), size: 15, color: .labelColor, weight: .semibold))
                 if let p = paceInfo(w, samples: history[w.id] ?? []), let s = paceSummary(p) {
                     menu.addItem(rowItem(title: "Pace this week", value: s.status, fill: p.used / 100, color: colorFor(s.level),
                                          note: s.text, marker: p.elapsedH / p.windowH))
@@ -327,7 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             for w in [r.weekly, r.session].compactMap({ $0 }) + r.scoped {
                 var note: String?
                 if let reset = w.resetsAt, reset > Date() { note = "Resets \(formatDayTime(reset)) · in \(formatSpan(hours: reset.timeIntervalSinceNow / 3600))" }
-                menu.addItem(rowItem(title: windowLabel(w), value: "\(formatPct(w.left)) left", fill: w.used / 100, color: colorFor(left: w.left), note: note))
+                menu.addItem(rowItem(title: windowLabel(w), value: "\(formatPct(w.used)) used", fill: w.used / 100, color: colorFor(left: w.left), note: note))
             }
             if let ex = r.extra, ex.enabled == true, let u = ex.utilization {
                 menu.addItem(rowItem(title: "Extra usage", value: "\(formatPct(u)) used", fill: u / 100, color: colorFor(left: 100 - u),
@@ -353,7 +352,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         every.submenu = sub
         menu.addItem(every)
-        let al = action("Alerts at 25% and 10% left", #selector(toggleAlerts)); al.state = settings.alertsOn ? .on : .off
+        let al = action("Alerts at 75% and 90% used", #selector(toggleAlerts)); al.state = settings.alertsOn ? .on : .off
         menu.addItem(al)
         let login = action("Start at login", #selector(toggleLogin)); login.state = FileManager.default.fileExists(atPath: launchAgentURL.path) ? .on : .off
         menu.addItem(login)
