@@ -1,6 +1,16 @@
 # Changelog
 
-Each release is listed here, newest first. The version is `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1`; tagging `v<version>` publishes it as a GitHub release with downloadable zips.
+Each release is listed here, newest first. The version is `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1` and `appVersion` in `macos/Sources/Core.swift`; tagging `v<version>` publishes it as a GitHub release with downloadable zips.
+
+## 1.4.3 (2026-11-18)
+
+**Fixed (macOS):** a usage reply with an out-of-range number, such as a reset date thousands of years away or a share of 1e30, stopped the menu-bar app. Such dates are now skipped and such numbers show a dash ([#61](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/61)).
+
+**Fixed (macOS):** the app called itself version 1.0.0. It now has the same version as the Windows widgets, and the tests check that they stay the same ([#62](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/62)).
+
+**Changed:** pull requests that change the Mac app now build and test it on a macOS runner ([#57](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/57)), and its weekly alert rule has its own tests ([#64](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/64)). The Mac guide has full install and update steps ([#60](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/60)). The website and the README point Mac users to it ([#58](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/58)), say "used" like the widgets ([#59](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/59)) and list the Mac develop commands ([#63](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/63)).
+
+The Windows widgets are unchanged apart from the version number.
 
 ## 1.4.2 (2026-11-18)
 
