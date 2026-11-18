@@ -136,6 +136,8 @@ func selfTest() -> Int32 {
     aw.used = 95
     let odd = weeklyAlert(aw, thresholds: [-5, 0, 150, 1e30, .nan, .infinity], state: AlertState(), samples: [], now: now)
     check("thresholds outside 0–100 ignored", odd?.state.fired == ["pace"])
+    check("a share shown as a dash sends no alert", weeklyAlert(LimitWindow(id: "seven_day", name: "", kind: "weekly", used: 1e30, windowSeconds: weekSeconds, resetsAt: now.addingTimeInterval(86400)),
+                                                               thresholds: [25, 10], state: AlertState(), samples: [], now: now) == nil)
     check("no reset time, no alert decision", weeklyAlert(LimitWindow(id: "seven_day", name: "", kind: "weekly", used: 95, windowSeconds: weekSeconds, resetsAt: nil),
                                                          thresholds: [25, 10], state: AlertState(), samples: [], now: now) == nil)
     let oldAlerts = try? JSONDecoder().decode([String: AlertState].self, from: #"{"weekly":{"reset":1795143581,"fired":["25","pace"]}}"#.data(using: .utf8)!)

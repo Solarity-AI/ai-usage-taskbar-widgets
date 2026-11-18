@@ -4,7 +4,7 @@ Each release is listed here, newest first. The version is `$script:Version` in `
 
 ## 1.4.3 (2026-11-18)
 
-**Fixed (macOS):** a usage reply with an out-of-range number, such as a reset date thousands of years away or a share of 1e30, stopped the menu-bar app. Such dates are now skipped and such numbers show a dash ([#61](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/61)).
+**Fixed (macOS):** a usage reply with an out-of-range number, such as a reset date thousands of years away or a share of 1e30, stopped the menu-bar app. Such dates are now skipped, and such numbers show a dash and send no alert ([#61](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/61)).
 
 **Fixed (macOS):** the app called itself version 1.0.0. It now has the same version as the Windows widgets, and the tests check that they stay the same ([#62](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/62)).
 

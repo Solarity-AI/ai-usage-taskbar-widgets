@@ -374,9 +374,12 @@ func addSample(_ list: [Sample], t: Double, window w: LimitWindow) -> [Sample] {
 enum PaceLevel { case green, amber, red, gray }
 struct PaceSummary { var status: String; var level: PaceLevel; var text: String }
 
-/// "45m", "2h 5m", "2d 3h". A span that isn't a plausible number of hours shows as "—": Int() would trap on it.
+/// A share or span the app can show and act on: finite and of a plausible size. Int() would trap on anything else.
+func plausible(_ v: Double) -> Bool { v.isFinite && abs(v) < 1e9 }
+
+/// "45m", "2h 5m", "2d 3h". A span that isn't plausible shows as "—".
 func formatSpan(hours h: Double) -> String {
-    guard h.isFinite, abs(h) < 1e9 else { return "—" }
+    guard plausible(h) else { return "—" }
     let mins = Int((h * 60).rounded())
     if mins < 60 { return "\(max(0, mins))m" }
     let hrs = mins / 60
@@ -396,9 +399,9 @@ func formatDayTime(_ d: Date, now: Date = Date()) -> String {
     return f.string(from: d)
 }
 
-/// "61%", or "105%" over the limit. A share that isn't a plausible number shows as "—": Int() would trap on it.
+/// "61%", or "105%" over the limit. A share that isn't plausible shows as "—".
 func formatPct(_ v: Double) -> String {
-    guard v.isFinite, abs(v) < 1e9 else { return "—" }
+    guard plausible(v) else { return "—" }
     return "\(Int(v.rounded()))%"
 }
 
@@ -427,12 +430,13 @@ func paceSummary(_ p: Pace?, now: Date = Date()) -> PaceSummary? {
 /// The weekly alerts already shown, and the reset they belong to (alerts.json).
 struct AlertState: Codable { var reset: Double = 0; var fired: [String] = [] }
 
-/// Which weekly alert to show for this reading, if any, and the alert state to keep. nil without a reset time.
+/// Which weekly alert to show for this reading, if any, and the alert state to keep. nil without a reset time, and
+/// for a share the menu shows as "—": an alert about a number nobody can see would only confuse.
 /// Thresholds are shares left (25 and 10 = 75% and 90% used); one that isn't above 0 and up to 100 is ignored.
 /// A threshold, the limit and a too-fast pace each alert once per week; a reset more than an hour away starts a new week.
 func weeklyAlert(_ w: LimitWindow, thresholds: [Double], state: AlertState, samples: [Sample],
                  now: Date = Date()) -> (state: AlertState, alert: (title: String, body: String)?)? {
-    guard let reset = w.resetsAt else { return nil }
+    guard let reset = w.resetsAt, plausible(w.used) else { return nil }
     var st = state
     if abs(st.reset - reset.timeIntervalSince1970) > 3600 { st = AlertState(reset: reset.timeIntervalSince1970, fired: []) }
     let marks = thresholds.filter { $0.isFinite && $0 > 0 && $0 <= 100 }
