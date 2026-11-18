@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AI usage taskbar widgets: Claude and Codex limits on your Windows taskbar</title>
-<meta name="description" content="Two free Windows taskbar widgets that show how much of your weekly Claude and Codex allowance is left, and when it runs out at your pace. Local, private, no sign-up.">
+<meta name="description" content="Two free Windows taskbar widgets that show how much of your weekly Claude and Codex allowance is used, and when it runs out at your pace. Local, private, no sign-up.">
 <meta name="theme-color" content="#0f1217" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
@@ -12,7 +12,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Solarity AI">
 <meta property="og:title" content="AI usage taskbar widgets">
-<meta property="og:description" content="See how much of your weekly Claude and Codex allowance is left, and when it runs out at your pace, right on the Windows taskbar.">
+<meta property="og:description" content="See how much of your weekly Claude and Codex allowance is used, and when it runs out at your pace, right on the Windows taskbar.">
 <meta property="og:url" content="https://solarity-ai.github.io/ai-usage-taskbar-widgets/">
 <meta property="og:image" content="https://solarity-ai.github.io/ai-usage-taskbar-widgets/og.png">
 <meta property="og:image:width" content="1200">
@@ -25,7 +25,7 @@
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "AI usage taskbar widgets",
-  "description": "Windows taskbar widgets that show how much of your weekly Claude and Codex allowance is left, and when it runs out at your pace.",
+  "description": "Windows taskbar widgets that show how much of your weekly Claude and Codex allowance is used, and when it runs out at your pace.",
   "applicationCategory": "UtilitiesApplication",
   "operatingSystem": "Windows 10, Windows 11",
   "url": "https://solarity-ai.github.io/ai-usage-taskbar-widgets/",
@@ -139,13 +139,13 @@ footer a{color:var(--dim)}
 <div class="wrap hero">
   <span class="eyebrow">Free · Windows 10 and 11 · Claude and Codex</span>
   <h1>Your <span class="grad">Claude and Codex limits</span>, always on the taskbar</h1>
-  <p class="lead">Two small widgets show how much of your weekly allowance is left, whether you are on pace, and the exact time it runs out at your current speed. They run on your PC only: no server, no telemetry, no sign-up.</p>
+  <p class="lead">Two small widgets show how much of your weekly allowance is used, whether you are on pace, and the exact time it runs out at your current speed. They run on your PC only: no server, no telemetry, no sign-up.</p>
   <div class="cta">
     <a class="btn primary" href="https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest/download/ai-usage-taskbar-widgets.zip">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 21h16"/></svg>Download for Windows</a>
     <a class="btn ghost" href="#install">How to install</a>
   </div>
-  <p class="fine"><a href="https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest">Latest release</a> · works with Claude Pro, Max, Team and Enterprise, and ChatGPT plans with Codex</p>
+  <p class="fine"><a href="https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest">Latest release</a> · works with Claude Pro, Max, Team and Enterprise, and ChatGPT plans with Codex · On a Mac? <a href="https://github.com/Solarity-AI/ai-usage-taskbar-widgets/blob/main/macos/README.md">Get the Claude menu-bar app</a></p>
 
   <div class="stage" aria-label="The Codex and Claude cards above their taskbar pills">
     <div class="cards">
@@ -165,10 +165,10 @@ footer a{color:var(--dim)}
     <h2>Everything you need to pace your week</h2>
     <p class="sub">Glance at the pill, hover for the card, right-click for settings. Each widget works on its own; install one or both.</p>
     <div class="grid">
-      <div class="feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 8 8"/></svg></div><h3>Weekly allowance at a glance</h3><p>A ring shows the share left, next to the time until the weekly reset. The edge turns orange or red when you are running low.</p></div>
+      <div class="feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 8 8"/></svg></div><h3>Weekly allowance at a glance</h3><p>A ring shows the share used, next to the time until the weekly reset. The edge turns orange or red when you are running low.</p></div>
       <div class="feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 18l6-6 4 4 6-8"/></svg></div><h3>Pace forecast with a finish time</h3><p>Your recent speed predicts when the allowance runs out: before the reset is <em>Too fast</em>, just after is <em>Cutting close</em>, later is <em>On pace</em>.</p></div>
       <div class="feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h10M4 17h13"/></svg></div><h3>Every limit, one card</h3><p>Weekly, the 5-hour session and per-model limits, each with its bar and reset time. Credits and extra usage show too when your plan has them.</p></div>
-      <div class="feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4l2-2zM10 21h4"/></svg></div><h3>Alerts you can snooze</h3><p>Windows notifications fire at 25% and 10% left, at the limit, and when you are on track to run out early. Snooze them for an hour, until morning or until the reset.</p></div>
+      <div class="feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4l2-2zM10 21h4"/></svg></div><h3>Alerts you can snooze</h3><p>Windows notifications fire at 75% and 90% used, at the limit, and when you are on track to run out early. Snooze them for an hour, until morning or until the reset.</p></div>
       <div class="feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></div><h3>Private by design</h3><p>Your sign-in is read only on your PC and sent only to the vendor's own usage endpoint. Nothing is logged, cached or shared.</p></div>
       <div class="feature"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div><h3>Feels native on Windows 11</h3><p>Light and dark themes, per-monitor DPI, every taskbar on multiple monitors, and the pills hide while a full-screen app is in front.</p></div>
     </div>
@@ -214,6 +214,7 @@ footer a{color:var(--dim)}
       </li>
       <li><h3>Done</h3><p>The pill appears on the taskbar right away and starts with Windows from now on. Running the installer again updates the widget and keeps your settings. To remove it, right-click the pill and choose <b>Uninstall…</b>.</p></li>
     </ol>
+    <p class="fine">On a Mac? The Claude widget also comes as a native menu-bar app for macOS 13 or later. <a href="https://github.com/Solarity-AI/ai-usage-taskbar-widgets/blob/main/macos/README.md">Install it with three Terminal commands</a>.</p>
   </div>
 </section>
 
@@ -246,6 +247,7 @@ footer a{color:var(--dim)}
     <h2>Questions</h2>
     <details><summary><span>Does checking usage use up my allowance?</span></summary><p>No. The widgets read the same usage numbers the Claude and Codex apps show. The Claude backup source runs Claude Code's local <code>/usage</code> command, which sends no AI request.</p></details>
     <details><summary><span>Is this an official Anthropic or OpenAI tool?</span></summary><p>No. It is made by Solarity AI and isn't affiliated with Anthropic or OpenAI. The usage endpoints it reads are the ones the official apps use; they aren't public APIs and may change. If one does, the widget says so instead of showing wrong numbers.</p></details>
+    <details><summary><span>Is there a Mac version?</span></summary><p>Yes, for the Claude widget: a native menu-bar app for macOS 13 or later, with the same usage, pace and alerts. It builds on your Mac with Apple's Command Line Tools; the <a href="https://github.com/Solarity-AI/ai-usage-taskbar-widgets/blob/main/macos/README.md">macOS guide</a> has the commands. Run <code>claude</code> once in Terminal to sign in to Claude Code first. Codex is Windows-only for now.</p></details>
     <details><summary><span>Why does the installer use <code>-ExecutionPolicy&nbsp;Bypass</code>?</span></summary><p>Windows blocks unsigned scripts by default. The flag applies to that one command only; it changes no system setting and needs no admin rights.</p></details>
     <details><summary><span>How accurate is the run-out time?</span></summary><p>It is an estimate from readings taken on your PC. It uses your speed over the last few hours, or the week's average early on, so it moves as your use changes. It isn't an official forecast.</p></details>
     <details><summary><span>The pill says "sign in needed" or "not up to date"</span></summary><p>For sign-in, right-click the pill and choose <b>Sign in again</b>; the widget refreshes when the sign-in window closes. "Not up to date" means the usage service is rate limiting; the widget retries by itself, or choose <b>Refresh now</b>.</p></details>
