@@ -2,7 +2,7 @@
 
 Each release is listed here, newest first. The version is `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1`; tagging `v<version>` publishes it as a GitHub release with downloadable zips.
 
-## Unreleased
+## 1.4.0 (2026-11-17)
 
 **Changed:** the pill, the card's big number and the alerts show the share **used**, not the share left: `31%` used instead of `69%` left. Alert thresholds are the same points, now named 50%, 75%, 90% and 95% used ([#48](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/48)).
 
