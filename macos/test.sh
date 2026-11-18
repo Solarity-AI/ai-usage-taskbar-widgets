@@ -5,12 +5,13 @@ set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 green=$'\e[32m'; red=$'\e[31m'; off=$'\e[0m'
 bin="$here/build/Claude Usage.app/Contents/MacOS/ClaudeUsage"
-tmp="$(mktemp -d)"; trap 'kill $mock 2>/dev/null; wait $mock 2>/dev/null; rm -rf "$tmp"' EXIT
+mock=""; tmp="$(mktemp -d)"; trap '[ -n "$mock" ] && { kill "$mock"; wait "$mock"; } 2>/dev/null; rm -rf "$tmp"' EXIT
 fail=0
 check() { if [ "$2" = 0 ]; then echo "${green}✅ $1${off}"; else echo "${red}❌ $1${off}"; fail=1; fi; }
 
-# A failed build stops here: the checks below would otherwise run an older binary.
-if "$here/build.sh" >"$tmp/build.log" 2>&1; then check "build" 0; else check "build" 1; tail -20 "$tmp/build.log"; exit 1; fi
+# A failed build stops here: the checks below would otherwise run an older binary. It builds under a UTF-8
+# locale, as Terminal runs install.sh, so a script that only works in the C locale fails here too.
+if LC_ALL=en_US.UTF-8 "$here/build.sh" >"$tmp/build.log" 2>&1; then check "build" 0; else check "build" 1; tail -20 "$tmp/build.log"; exit 1; fi
 "$bin" --self-test >"$tmp/self.log"; check "self-test ($(tail -1 "$tmp/self.log"))" $?
 grep '❌' "$tmp/self.log"
 
