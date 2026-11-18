@@ -4,7 +4,7 @@
 import CryptoKit
 import Foundation
 
-let appVersion = "1.4.3"
+let appVersion = "1.5.0"
 let weekSeconds: Double = 604_800
 let sessionSeconds: Double = 18_000
 let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
@@ -374,6 +374,9 @@ func addSample(_ list: [Sample], t: Double, window w: LimitWindow) -> [Sample] {
 enum PaceLevel { case green, amber, red, gray }
 struct PaceSummary { var status: String; var level: PaceLevel; var text: String }
 
+/// Row title for a pace summary: "Pace this week" or "Pace this 5-hour session".
+func paceTitle(_ p: Pace) -> String { p.windowH > 24 ? "Pace this week" : "Pace this \(Int(p.windowH.rounded()))-hour session" }
+
 /// A share or span the app can show and act on: finite and of a plausible size. Int() would trap on anything else.
 func plausible(_ v: Double) -> Bool { v.isFinite && abs(v) < 1e9 }
 
@@ -408,7 +411,7 @@ func formatPct(_ v: Double) -> String {
 func paceSummary(_ p: Pace?, now: Date = Date()) -> PaceSummary? {
     guard let p = p else { return nil }
     let gone = formatPct(100 * p.elapsedH / p.windowH)
-    let period = p.windowH > 24 ? "the week" : "the window"
+    let period = p.windowH > 24 ? "the week" : "the session"
     let plain = "\(formatPct(p.used)) used · \(gone) of \(period) gone"
     if p.limited { return PaceSummary(status: "Limit reached", level: .red, text: "Resets \(formatDayTime(p.reset, now: now)) · in \(formatSpan(hours: p.remainingH))") }
     if p.speedPct == nil { return PaceSummary(status: "Too early to tell", level: .gray, text: plain) }

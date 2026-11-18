@@ -3,7 +3,7 @@
 A native menu-bar version of the Claude widget for macOS 13 or later. It shows a ring and the share used of the limit that runs out first (`39% wk · 1d 14h`, or `60% 5h · 2h` when the 5-hour session is tighter). Its menu shows:
 
 - the share of the week used and your plan
-- a *Pace this week* row: *On pace*, *Cutting close*, *Too fast* or *Limit reached*, with the time the allowance runs out at your current rate
+- *Pace this week* and *Pace this 5-hour session* rows: *On pace*, *Cutting close*, *Too fast* or *Limit reached*, with the time each limit runs out at your current rate
 - a bar for each limit (weekly, 5-hour session, per-model limits) with its reset time, plus extra usage when it is on
 - *Refresh now*, *Open usage page*, *Sign in again…* (only when needed), *Refresh every*, *Alerts at 75% and 90% used*, *Start at login*, *Open data folder* and *Quit*
 

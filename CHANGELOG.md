@@ -2,6 +2,10 @@
 
 Each release is listed here, newest first. The version is `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1` and `appVersion` in `macos/Sources/Core.swift`; tagging `v<version>` publishes it as a GitHub release with downloadable zips.
 
+## 1.5.0 (2026-11-18)
+
+**New:** the hover card has a second pace box, *Pace this 5-hour session*, under *Pace this week*. Like the weekly box, it says *On pace*, *Cutting close*, *Too fast* or *Limit reached* and when the 5-hour session runs out at your current pace. The Mac menu shows the same row ([#67](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/67)).
+
 ## 1.4.3 (2026-11-18)
 
 **Fixed (macOS):** `./macos/install.sh` stopped with "version…: unbound variable" in a normal Terminal window, so the Mac app could not be installed from one ([#65](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/65)).
