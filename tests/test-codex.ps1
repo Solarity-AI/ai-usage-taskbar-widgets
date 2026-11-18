@@ -2,11 +2,13 @@
 param([string]$Dir, [string]$Root)
 $ErrorActionPreference = 'Stop'
 $utf8 = New-Object Text.UTF8Encoding($false)
+# Reset times relative to now: fixed timestamps went stale on 2026-11-18 and dropped the 5-hour window (#52).
+$rWeek = [string][DateTimeOffset]::UtcNow.AddDays(5).ToUnixTimeSeconds(); $rSession = [string][DateTimeOffset]::UtcNow.AddHours(2).ToUnixTimeSeconds()
 if (Test-Path $Root) { Remove-Item $Root -Recurse -Force }
 $ch = Join-Path $Root 'codex-home'; [void](New-Item -ItemType Directory -Path $ch -Force)
 [IO.File]::WriteAllText((Join-Path $ch 'auth.json'), '{"auth_mode":"chatgpt","tokens":{"access_token":"fixture-not-a-real-token","account_id":"fixture-acct"}}', $utf8)
 $resp = Join-Path $Root 'resp.json'
-[IO.File]::WriteAllText($resp, '{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":85,"limit_window_seconds":604800,"reset_at":1795057181}},"credits":{"balance":62500}}', $utf8)
+[IO.File]::WriteAllText($resp, '{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":85,"limit_window_seconds":604800,"reset_at":1795057181}},"credits":{"balance":62500}}'.Replace('1795057181', $rWeek), $utf8)
 $cache = Join-Path $Root 'cache\usage-cache.json'
 $results = New-Object System.Collections.ArrayList
 function Check($name, [bool]$ok, $detail) { [void]$results.Add([pscustomobject]@{ Result = $(if ($ok) { 'PASS' } else { 'FAIL' }); Check = $name; Detail = "$detail" }) }
@@ -35,7 +37,7 @@ $jsonl = Join-Path $Root 'appserver.jsonl'
 [IO.File]::WriteAllLines($jsonl, @(
     '{"id":1,"result":{"userAgent":"x"}}',
     '{"method":"account/updated","params":{"authMode":"chatgpt"}}',
-    '{"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":91,"windowDurationMins":10080,"resetsAt":1795057181},"secondary":{"usedPercent":40,"windowDurationMins":300,"resetsAt":1795000000},"credits":{"hasCredits":true,"unlimited":false,"balance":"61000.5"},"planType":"pro","rateLimitReachedType":null},"rateLimitsByLimitId":{"codex":{"limitId":"codex"},"codex_other":{"limitId":"codex_other","limitName":"GPT-5 Pro","primary":{"usedPercent":12,"windowDurationMins":10080,"resetsAt":1795057181}}},"rateLimitResetCredits":{"availableCount":2},"accountId":"fixture-acct"}}'))
+    ('{"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":91,"windowDurationMins":10080,"resetsAt":1795057181},"secondary":{"usedPercent":40,"windowDurationMins":300,"resetsAt":1795000000},"credits":{"hasCredits":true,"unlimited":false,"balance":"61000.5"},"planType":"pro","rateLimitReachedType":null},"rateLimitsByLimitId":{"codex":{"limitId":"codex"},"codex_other":{"limitId":"codex_other","limitName":"GPT-5 Pro","primary":{"usedPercent":12,"windowDurationMins":10080,"resetsAt":1795057181}}},"rateLimitResetCredits":{"availableCount":2},"accountId":"fixture-acct"}}').Replace('1795057181', $rWeek).Replace('1795000000', $rSession)))
 $calls = Join-Path $Root 'cli-calls.txt'
 $fakeCli = Join-Path $Root 'fake-codex.cmd'
 [IO.File]::WriteAllText($fakeCli, "@echo off`r`necho %*>>""$calls""`r`ntype ""$jsonl""`r`n")
