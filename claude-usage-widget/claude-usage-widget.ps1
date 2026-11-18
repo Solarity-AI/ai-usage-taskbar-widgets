@@ -62,7 +62,7 @@ $script:ExitMarkerPath = Join-Path $script:AppDir 'exited-by-user'  # left by Ex
 $script:CollectorPath = Join-Path $PSScriptRoot $script:CollectorName
 $script:UninstallPath = Join-Path $PSScriptRoot 'uninstall.ps1'
 $script:ShortcutPath  = Join-Path ([Environment]::GetFolderPath('Startup')) ('{0} Usage Widget.lnk' -f $script:ProductName)
-$script:Version       = '1.4.0'          # release version (tools\package.ps1 and the release workflow check it)
+$script:Version       = '1.4.1'          # release version (tools\package.ps1 and the release workflow check it)
 $script:HomeUrl       = 'https://solarity-ai.github.io/ai-usage-taskbar-widgets/'
 $script:CollectorTimeoutSeconds = 120   # the collector may run the official CLI
 $script:AnchorGapPx   = 8               # physical pixels between neighbouring pills / the notification area
@@ -1829,6 +1829,21 @@ function Format-SnoozeEnd {
     return $l.ToString('ddd HH:mm', [Globalization.CultureInfo]::InvariantCulture)
 }
 
+function Find-BundledClaudeCli {
+    # The Claude desktop app ships its own Claude Code (Code tab) but never puts it on PATH or in ~\.local\bin:
+    # %LOCALAPPDATA%\Claude-Data\claude_<id>\claude-code\<version>\<hash>\claude.exe (Store/MSIX install) or
+    # %APPDATA%\Claude\claude-code\<version>\<hash>\claude.exe. Newest version wins.
+    $roots = @(
+        (Join-Path $env:LOCALAPPDATA 'Claude-Data\claude_*\claude-code'),
+        (Join-Path $env:APPDATA 'Claude\claude-code'),
+        (Join-Path $env:LOCALAPPDATA 'Packages\Claude_*\LocalCache\Roaming\Claude\claude-code')
+    )
+    $found = foreach ($r in $roots) { Get-ChildItem -Path (Join-Path $r '*\*\claude.exe') -File -ErrorAction SilentlyContinue }
+    $best = $found | Sort-Object @{ Expression = { $v = $null; if ([version]::TryParse($_.Directory.Parent.Name, [ref]$v)) { $v } else { [version]'0.0' } } }, LastWriteTimeUtc -Descending | Select-Object -First 1
+    if ($null -ne $best) { return $best.FullName }
+    return $null
+}
+
 function Find-SignInCli {
     # The official CLI's interactive sign-in for this product: claude "auth login" / codex "login".
     if ($script:ProductKey -eq 'claude') {
@@ -1836,6 +1851,8 @@ function Find-SignInCli {
         if (Test-Path -LiteralPath $c -PathType Leaf) { return @{ exe = $c; args = 'auth login'; name = 'Claude Code' } }
         $cmd = Get-Command 'claude.exe', 'claude.cmd' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($null -ne $cmd) { return @{ exe = $cmd.Source; args = 'auth login'; name = 'Claude Code' } }
+        $b = Find-BundledClaudeCli
+        if ($b) { return @{ exe = $b; args = 'auth login'; name = 'Claude Code' } }
         return $null
     }
     try {

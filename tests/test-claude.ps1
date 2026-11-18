@@ -88,6 +88,16 @@ Set-Creds 1000000000000
 Remove-Item (Join-Path $Root 'cache\collector-state.json') -Force
 $x = Run @('-Force') $cfg (Join-Path $Root 'no-such-claude.exe')
 Check 'no CLI found: clear message' ($x.diag -match 'renew=no_cli' -and $x.json.error.message -match 'was not found') $x.json.error.message
+# #52: the Claude desktop app's bundled Claude Code (not on PATH) is found; newest version wins (2.1.10 over 2.1.9).
+$app = Join-Path $Root 'localappdata'; $cc = Join-Path $app 'Claude-Data\claude_fixture\claude-code'
+$v9 = Join-Path $cc (Join-Path '2.1.9' 'aaa'); $v10 = Join-Path $cc (Join-Path '2.1.10' 'bbb')
+[void](New-Item -ItemType Directory -Path $v9, $v10 -Force)
+[IO.File]::WriteAllText((Join-Path $v9 'claude.exe'), 'not a program', $utf8)
+Copy-Item (Join-Path $env:SystemRoot 'System32\whoami.exe') (Join-Path $v10 'claude.exe')
+Remove-Item (Join-Path $Root 'cache\collector-state.json') -Force
+$oldApp = $env:LOCALAPPDATA; $oldRoam = $env:APPDATA; $env:LOCALAPPDATA = $app; $env:APPDATA = (Join-Path $Root 'no-appdata')
+try { $x = Run @('-Force') $cfg '' } finally { $env:LOCALAPPDATA = $oldApp; $env:APPDATA = $oldRoam }
+Check '#52: bundled desktop-app CLI found, newest version' ($x.diag -match 'renew=exit_' -and $x.diag -notmatch 'renew=(no_cli|start_failed)') $x.diag
 Set-Creds $future
 Remove-Item (Join-Path $Root 'cache\collector-state.json') -Force
 $x = Run @('-TestHttpStatus', '401', '-Force') $cfg $fakeOk
@@ -124,7 +134,7 @@ $tok = $null; $err = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($Widget, [ref]$tok, [ref]$err)
 $want = 'ConvertTo-UtcTime', 'ConvertTo-Unix', 'Get-Left', 'Format-Percent', 'Get-LevelKey', 'Format-Span', 'Get-ResetText', 'Format-LocalTime', 'Format-Rate',
     'Get-PaceInfo', 'Get-PaceView', 'Write-AtomicText', 'Get-PillFitHeight', 'New-History', 'Read-History', 'Add-HistorySample', 'ConvertTo-HistoryJson', 'Get-ClearX', 'Write-Log',
-    'Format-Number', 'Format-Share', 'Test-Snoozed', 'Get-SnoozeUntil', 'Format-SnoozeEnd', 'Find-SignInCli', 'Get-SameWindowSamples', 'Get-DailyBudget', 'Get-ChartGeometry', 'Get-Trend', 'Get-AlertsDue', 'ConvertTo-Settings', 'Add-WindowSample', 'Get-SpendValue', 'Format-DayTime', 'Format-ResetLine', 'Format-UsedShare', 'Get-PaceSummary', 'Get-WindowLabel', 'Invoke-Alerts', 'Get-BindingLimit',
+    'Format-Number', 'Format-Share', 'Test-Snoozed', 'Get-SnoozeUntil', 'Format-SnoozeEnd', 'Find-SignInCli', 'Find-BundledClaudeCli', 'Get-SameWindowSamples', 'Get-DailyBudget', 'Get-ChartGeometry', 'Get-Trend', 'Get-AlertsDue', 'ConvertTo-Settings', 'Add-WindowSample', 'Get-SpendValue', 'Format-DayTime', 'Format-ResetLine', 'Format-UsedShare', 'Get-PaceSummary', 'Get-WindowLabel', 'Invoke-Alerts', 'Get-BindingLimit',
     'Read-JsonFile', 'Read-AlertsSent', 'Test-AlertSent', 'Get-ClampedPosition'
 $script:AppDir = $Root; $script:LogPath = Join-Path $Root 'widget.log'; $script:HistoryDays = 15; $script:AnchorGapPx = 8; $script:Inv = [Globalization.CultureInfo]::InvariantCulture
 foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $n.Name }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
@@ -391,6 +401,10 @@ $script:ProductKey = 'claude'
 $si = Find-SignInCli
 $expected = Test-Path (Join-Path $env:USERPROFILE '.local\bin\claude.exe')
 Check 'sign in: Claude uses the official CLI "auth login"' ((-not $expected) -or ($si.args -eq 'auth login' -and $si.exe -like '*claude.exe')) "$($si.exe) $($si.args)"
+$oldApp = $env:LOCALAPPDATA; $oldRoam = $env:APPDATA; $env:LOCALAPPDATA = $app; $env:APPDATA = (Join-Path $Root 'no-appdata')
+try { $si2 = Find-SignInCli } finally { $env:LOCALAPPDATA = $oldApp; $env:APPDATA = $oldRoam }
+$onPath = $expected -or ($null -ne (Get-Command 'claude.exe', 'claude.cmd' -CommandType Application -ErrorAction SilentlyContinue))
+Check '#52: sign in falls back to the desktop app''s bundled Claude Code (newest)' ($onPath -or ($si2.args -eq 'auth login' -and $si2.exe -like '*2.1.10*claude.exe')) "$($si2.exe)"
 
 # ---- watchdog (#23): a widget that died or hung comes back; never after Exit, Start with Windows off or uninstall
 $src = [IO.File]::ReadAllText($Widget)

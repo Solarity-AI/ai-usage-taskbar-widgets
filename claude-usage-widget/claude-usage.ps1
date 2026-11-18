@@ -414,13 +414,28 @@ function Format-UnixLocal {
 
 # ---------------------------------------------------------------- sign-in renewal through the official CLI
 
+function Find-BundledClaudeCli {
+    # The Claude desktop app ships its own Claude Code (Code tab) but never puts it on PATH or in ~\.local\bin:
+    # %LOCALAPPDATA%\Claude-Data\claude_<id>\claude-code\<version>\<hash>\claude.exe (Store/MSIX install) or
+    # %APPDATA%\Claude\claude-code\<version>\<hash>\claude.exe. Newest version wins.
+    $roots = @(
+        (Join-Path $env:LOCALAPPDATA 'Claude-Data\claude_*\claude-code'),
+        (Join-Path $env:APPDATA 'Claude\claude-code'),
+        (Join-Path $env:LOCALAPPDATA 'Packages\Claude_*\LocalCache\Roaming\Claude\claude-code')
+    )
+    $found = foreach ($r in $roots) { Get-ChildItem -Path (Join-Path $r '*\*\claude.exe') -File -ErrorAction SilentlyContinue }
+    $best = $found | Sort-Object @{ Expression = { $v = $null; if ([version]::TryParse($_.Directory.Parent.Name, [ref]$v)) { $v } else { [version]'0.0' } } }, LastWriteTimeUtc -Descending | Select-Object -First 1
+    if ($null -ne $best) { return $best.FullName }
+    return $null
+}
+
 function Find-ClaudeCli {
     if ($ClaudeCliPath) { if (Test-Path -LiteralPath $ClaudeCliPath -PathType Leaf) { return $ClaudeCliPath }; return $null }
     $c = Join-Path $env:USERPROFILE '.local\bin\claude.exe'
     if (Test-Path -LiteralPath $c -PathType Leaf) { return $c }
     $cmd = Get-Command 'claude.exe', 'claude.cmd' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($null -ne $cmd) { return $cmd.Source }
-    return $null
+    return (Find-BundledClaudeCli)
 }
 
 function Get-CredTicks {
