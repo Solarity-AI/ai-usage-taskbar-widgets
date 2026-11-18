@@ -81,11 +81,15 @@ func parseNumber(_ v: Any?) -> Double? {
     return nil
 }
 
+/// The date, or nil after 9999-12-31T23:59:59Z: later dates can't be formatted or encoded as ISO 8601.
+func bounded(_ d: Date) -> Date? { d.timeIntervalSince1970 < 253_402_300_800 ? d : nil }
+
 /// ISO 8601 with any number of fraction digits and any offset, or Unix seconds / milliseconds.
+/// Dates after the year 9999 count as missing.
 func parseDate(_ v: Any?) -> Date? {
     if let n = parseNumber(v) {
         if n <= 0 { return nil }
-        return Date(timeIntervalSince1970: n > 100_000_000_000 ? n / 1000 : n)
+        return bounded(Date(timeIntervalSince1970: n > 100_000_000_000 ? n / 1000 : n))
     }
     guard var s = (v as? String)?.trimmingCharacters(in: .whitespaces), !s.isEmpty else { return nil }
     var fraction = 0.0
@@ -95,9 +99,9 @@ func parseDate(_ v: Any?) -> Date? {
     }
     let f = ISO8601DateFormatter()
     f.formatOptions = [.withInternetDateTime]
-    if let d = f.date(from: s) { return d.addingTimeInterval(fraction) }
+    if let d = f.date(from: s) { return bounded(d.addingTimeInterval(fraction)) }
     if !s.contains("Z") && !s.contains("+") && s.filter({ $0 == "-" }).count == 2, let d = f.date(from: s + "Z") {
-        return d.addingTimeInterval(fraction)   // no offset: assume UTC, as the collector does
+        return bounded(d.addingTimeInterval(fraction))   // no offset: assume UTC, as the collector does
     }
     return nil
 }
@@ -370,7 +374,9 @@ func addSample(_ list: [Sample], t: Double, window w: LimitWindow) -> [Sample] {
 enum PaceLevel { case green, amber, red, gray }
 struct PaceSummary { var status: String; var level: PaceLevel; var text: String }
 
+/// "45m", "2h 5m", "2d 3h". A span that isn't a plausible number of hours shows as "—": Int() would trap on it.
 func formatSpan(hours h: Double) -> String {
+    guard h.isFinite, abs(h) < 1e9 else { return "—" }
     let mins = Int((h * 60).rounded())
     if mins < 60 { return "\(max(0, mins))m" }
     let hrs = mins / 60
@@ -390,7 +396,11 @@ func formatDayTime(_ d: Date, now: Date = Date()) -> String {
     return f.string(from: d)
 }
 
-func formatPct(_ v: Double) -> String { "\(Int(v.rounded()))%" }
+/// "61%", or "105%" over the limit. A share that isn't a plausible number shows as "—": Int() would trap on it.
+func formatPct(_ v: Double) -> String {
+    guard v.isFinite, abs(v) < 1e9 else { return "—" }
+    return "\(Int(v.rounded()))%"
+}
 
 func paceSummary(_ p: Pace?, now: Date = Date()) -> PaceSummary? {
     guard let p = p else { return nil }
@@ -410,6 +420,38 @@ func paceSummary(_ p: Pace?, now: Date = Date()) -> PaceSummary? {
         s.text = "No use lately, so it lasts until the reset · \(plain)"
     }
     return s
+}
+
+// MARK: - Alerts (Check-Alerts)
+
+/// The weekly alerts already shown, and the reset they belong to (alerts.json).
+struct AlertState: Codable { var reset: Double = 0; var fired: [String] = [] }
+
+/// Which weekly alert to show for this reading, if any, and the alert state to keep. nil without a reset time.
+/// Thresholds are shares left (25 and 10 = 75% and 90% used); one that isn't above 0 and up to 100 is ignored.
+/// A threshold, the limit and a too-fast pace each alert once per week; a reset more than an hour away starts a new week.
+func weeklyAlert(_ w: LimitWindow, thresholds: [Double], state: AlertState, samples: [Sample],
+                 now: Date = Date()) -> (state: AlertState, alert: (title: String, body: String)?)? {
+    guard let reset = w.resetsAt else { return nil }
+    var st = state
+    if abs(st.reset - reset.timeIntervalSince1970) > 3600 { st = AlertState(reset: reset.timeIntervalSince1970, fired: []) }
+    let marks = thresholds.filter { $0.isFinite && $0 > 0 && $0 <= 100 }
+    var send: (title: String, body: String)?
+    let resetText = "Resets \(formatDayTime(reset, now: now)) · in \(formatSpan(hours: reset.timeIntervalSince(now) / 3600))"
+    if w.left <= 0 {
+        if !st.fired.contains("limit") { st.fired.append("limit"); send = ("Claude: weekly limit reached", resetText) }
+    } else {
+        for t in marks.sorted() where w.left <= t {
+            let k = "\(Int(t))"
+            if !st.fired.contains(k) { st.fired.append(contentsOf: marks.filter { $0 >= t }.map { "\(Int($0))" }); send = ("Claude: \(formatPct(w.used)) of the week used", resetText) }
+            break
+        }
+        if let p = paceSummary(paceInfo(w, samples: samples, now: now), now: now), p.status == "Too fast", !st.fired.contains("pace") {
+            st.fired.append("pace")
+            send = send ?? ("Claude: on track to run out before the reset", p.text)
+        }
+    }
+    return (st, send)
 }
 
 // MARK: - Local files
