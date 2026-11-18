@@ -307,7 +307,7 @@ else {
     try { $data = $outTask.Result | ConvertFrom-Json } catch { }
     if ($null -eq $data) { Write-Note "Collector returned no valid data (exit $code)." }
     elseif ($code -eq 0 -and $null -ne $data.weekly) {
-        Write-Ok ('Live data OK: {0:0.#}% of the weekly allowance left ({1})' -f $data.weekly.left, $data.source)
+        Write-Ok ('Live data OK: {0:0.#}% of the weekly allowance used ({1})' -f (100.0 - [double]$data.weekly.left), $data.source)
     } elseif ($code -eq 0) {
         Write-Note 'Connected, but the service reported no weekly window; the widget shows it as unavailable.'
     } else {

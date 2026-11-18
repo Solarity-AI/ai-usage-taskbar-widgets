@@ -32,9 +32,9 @@ $future = 4102444800000
 Set-Creds $future
 $full = Resp 'full' ([ordered]@{
     five_hour = [ordered]@{ utilization = 22.5; resets_at = '2030-11-13T01:59:59.912345+00:00' }
-    seven_day = [ordered]@{ utilization = 61; resets_at = '2026-11-19T02:59:41.5+00:00' }
+    seven_day = [ordered]@{ utilization = 61; resets_at = '2030-11-19T02:59:41.5+00:00' }
     seven_day_oauth_apps = $null
-    seven_day_opus = [ordered]@{ utilization = 80; resets_at = '2026-11-19T02:59:41+00:00' }
+    seven_day_opus = [ordered]@{ utilization = 80; resets_at = '2030-11-19T02:59:41+00:00' }
     seven_day_sonnet = [ordered]@{ utilization = $null; resets_at = $null }
     extra_usage = [ordered]@{ is_enabled = $true; monthly_limit = 5000; used_credits = 1250; utilization = 25.0 } })
 
@@ -42,7 +42,7 @@ $r = Run @('-TestResponseFile', $full, '-Force')
 Check 'stdout is exactly 1 JSON document' ($r.lines -eq 1 -and $null -ne $r.json) "lines=$($r.lines)"
 Check 'seven_day -> weekly (604800), left = 100 - used' ($r.json.weekly.used -eq 61 -and $r.json.weekly.left -eq 39 -and $r.json.weekly.window_seconds -eq 604800) ($r.json.weekly | ConvertTo-Json -Compress)
 Check 'five_hour -> session (18000)' ($r.json.session.used -eq 22.5 -and $r.json.session.window_seconds -eq 18000) ($r.json.session | ConvertTo-Json -Compress)
-Check 'ISO +00:00 / fractional -> UTC Z' ($r.json.weekly.resets_at -eq '2026-11-19T02:59:41Z' -and $r.json.session.resets_at -eq '2030-11-13T01:59:59Z') "$($r.json.weekly.resets_at) $($r.json.session.resets_at)"
+Check 'ISO +00:00 / fractional -> UTC Z' ($r.json.weekly.resets_at -eq '2030-11-19T02:59:41Z' -and $r.json.session.resets_at -eq '2030-11-13T01:59:59Z') "$($r.json.weekly.resets_at) $($r.json.session.resets_at)"
 Check 'scoped Opus kept; null Sonnet skipped; weekly not overwritten' (@($r.json.scoped).Count -eq 1 -and $r.json.scoped[0].id -eq 'seven_day_opus' -and $r.json.scoped[0].name -eq 'Opus' -and $r.json.scoped[0].kind -eq 'weekly' -and $r.json.weekly.used -eq 61) ($r.json.scoped | ConvertTo-Json -Compress)
 Check 'single scoped item serialized as array' ($r.raw.Contains('"scoped":[{')) ''
 Check 'plan from local sign-in, extra usage %' ($r.json.plan -eq 'team' -and $r.json.extra_usage.enabled -eq $true -and $r.json.extra_usage.utilization -eq 25) ($r.json.extra_usage | ConvertTo-Json -Compress)
@@ -50,11 +50,11 @@ Check 'exit 0 live, verified' ($r.code -eq 0 -and $r.json.source -eq 'live' -and
 
 $r = Run @('-TestResponseFile', (Resp 'no7' ([ordered]@{ five_hour = [ordered]@{ utilization = 40; resets_at = '2026-11-13T01:00:00+00:00' }; seven_day = $null })), '-Force')
 Check 'missing weekly -> null (never the 5-hour value)' ($null -eq $r.json.weekly -and $r.json.session.used -eq 40 -and $r.raw.Contains('"scoped":[]')) $r.raw
-$r = Run @('-TestResponseFile', (Resp 'zero' ([ordered]@{ five_hour = $null; seven_day = [ordered]@{ utilization = 0; resets_at = '2026-11-19T02:59:41+00:00' } })), '-Force')
+$r = Run @('-TestResponseFile', (Resp 'zero' ([ordered]@{ five_hour = $null; seven_day = [ordered]@{ utilization = 0; resets_at = '2030-11-19T02:59:41+00:00' } })), '-Force')
 Check 'used 0 -> left 100, no session' ($r.json.weekly.left -eq 100 -and $null -eq $r.json.session -and $r.json.limit_reached -eq $false) ''
-$r = Run @('-TestResponseFile', (Resp 'max' ([ordered]@{ seven_day = [ordered]@{ utilization = 100; resets_at = '2026-11-19T02:59:41+00:00' } })), '-Force')
+$r = Run @('-TestResponseFile', (Resp 'max' ([ordered]@{ seven_day = [ordered]@{ utilization = 100; resets_at = '2030-11-19T02:59:41+00:00' } })), '-Force')
 Check 'used 100 -> left 0, limit_reached' ($r.json.weekly.left -eq 0 -and $r.json.limit_reached -eq $true) ''
-$r = Run @('-TestResponseFile', (Resp 'smax' ([ordered]@{ five_hour = [ordered]@{ utilization = 100; resets_at = '2030-11-13T01:00:00+00:00' }; seven_day = [ordered]@{ utilization = 40; resets_at = '2026-11-19T02:59:41+00:00' } })), '-Force')
+$r = Run @('-TestResponseFile', (Resp 'smax' ([ordered]@{ five_hour = [ordered]@{ utilization = 100; resets_at = '2030-11-13T01:00:00+00:00' }; seven_day = [ordered]@{ utilization = 40; resets_at = '2030-11-19T02:59:41+00:00' } })), '-Force')
 Check '#39: 5-hour window at 100% -> limit_reached (weekly 40%)' ($r.json.session.left -eq 0 -and $r.json.limit_reached -eq $true) $r.raw
 
 $a = Run @('-TestResponseFile', $full, '-Force'); Start-Sleep -Seconds 2
@@ -112,7 +112,7 @@ Check 'during backoff: 0 HTTP calls, stale cache' ($x.diag -match 'http_calls=0'
 $x = Run @('-TestResponseFile', $full, '-Force')
 $st = Get-Content (Join-Path $Root 'cache\collector-state.json') -Raw | ConvertFrom-Json
 Check 'Refresh now (-Force) ignores backoff; success clears it' ($x.diag -match 'http_calls=1' -and $x.json.source -eq 'live' -and $st.backoff_count -eq 0) $x.diag
-$rb = Run @('-TestHttpStatus', '503', '-TestNowUnix', '1795057300')
+$rb = Run @('-TestHttpStatus', '503', '-TestNowUnix', '1921287700')
 Check 'reset passed -> weekly null + reset_passed' ($null -eq $rb.json.weekly -and @($rb.json.reset_passed) -contains 'weekly') ($rb.json.reset_passed -join ',')
 Set-Creds $future 'fixture-acct-B'
 $ac = Run @('-TestHttpStatus', '401')

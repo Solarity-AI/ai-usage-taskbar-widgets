@@ -62,7 +62,7 @@ $script:ExitMarkerPath = Join-Path $script:AppDir 'exited-by-user'  # left by Ex
 $script:CollectorPath = Join-Path $PSScriptRoot $script:CollectorName
 $script:UninstallPath = Join-Path $PSScriptRoot 'uninstall.ps1'
 $script:ShortcutPath  = Join-Path ([Environment]::GetFolderPath('Startup')) ('{0} Usage Widget.lnk' -f $script:ProductName)
-$script:Version       = '1.4.1'          # release version (tools\package.ps1 and the release workflow check it)
+$script:Version       = '1.4.2'          # release version (tools\package.ps1 and the release workflow check it)
 $script:HomeUrl       = 'https://solarity-ai.github.io/ai-usage-taskbar-widgets/'
 $script:CollectorTimeoutSeconds = 120   # the collector may run the official CLI
 $script:AnchorGapPx   = 8               # physical pixels between neighbouring pills / the notification area
@@ -535,7 +535,7 @@ function Get-PaceView {
             if ($null -ne $p.speed_pct) { $pill = ('out ' + (Format-Span $p.run_out_in_h)) }   # no pill alarm in the first hour
             if ($speedLine) { [void]$lines.Add($speedLine) }
         } elseif ($null -ne $p.left_at_reset) {
-            [void]$lines.Add(('At this speed it lasts until the reset ({0}) with about {1}% left.' -f (Format-LocalTime $p.reset $Now), [Math]::Round($p.left_at_reset, [MidpointRounding]::AwayFromZero)))
+            [void]$lines.Add(('At this speed it lasts until the reset ({0}) with about {1}% used.' -f (Format-LocalTime $p.reset $Now), [Math]::Round(100.0 - $p.left_at_reset, [MidpointRounding]::AwayFromZero)))
         }
         if ($null -ne $Budget) {
             $bt = ('Today: {0}% used of a {1}% daily budget' -f (Format-Share $Budget.used_today), (Format-Share $Budget.budget))
@@ -554,7 +554,7 @@ function Get-PaceView {
         }
         if ($p.basis -eq 'recent' -and $null -ne $p.avg_rate -and $p.avg_runs_out -ne $p.runs_out) {
             if ($p.avg_runs_out) { [void]$lines.Add(('At the window average it would run out {0}.' -f (Format-LocalTime $p.avg_run_out_at $Now))) }
-            elseif ($null -ne $p.avg_left_at_reset) { [void]$lines.Add(('At the window average it would last, with about {0}% left.' -f [Math]::Round($p.avg_left_at_reset, [MidpointRounding]::AwayFromZero))) }
+            elseif ($null -ne $p.avg_left_at_reset) { [void]$lines.Add(('At the window average it would last, with about {0}% used at the reset.' -f [Math]::Round(100.0 - $p.avg_left_at_reset, [MidpointRounding]::AwayFromZero))) }
         }
         if ($null -ne $p.budget_rate) {
             $b = ('To last until the reset: at most {0}' -f (Format-Rate $p.budget_rate))
