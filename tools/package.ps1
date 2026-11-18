@@ -8,8 +8,9 @@
     dist\SHA256SUMS.txt                 checksums of the three zips
     dist\release-notes.md               this version's section of CHANGELOG.md
 
-    The version comes from $script:Version in the widget. It must match the newest CHANGELOG.md heading and,
-    when -Version is given (the release workflow passes the tag without its "v"), that value too.
+    The version comes from $script:Version in the widget. It must match the newest CHANGELOG.md heading, the
+    Codex widget, the macOS app (appVersion in macos\Sources\Core.swift) and, when -Version is given (the release
+    workflow passes the tag without its "v"), that value too.
 .EXAMPLE
     powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1
 #>
@@ -29,6 +30,8 @@ if (-not $h.Success -or $h.Groups[1].Value -ne $ver) { throw "CHANGELOG.md's new
 if ($Version -and $Version -ne $ver) { throw "Tag version $Version does not match the widget version $ver" }
 $codexSrc = [IO.File]::ReadAllText((Join-Path $root 'codex-usage-widget\codex-usage-widget.ps1'))
 if ($codexSrc -notmatch [regex]::Escape("`$script:Version       = '$ver'")) { throw 'The Codex widget has another version: run tools\sync.ps1' }
+$macSrc = [IO.File]::ReadAllText((Join-Path $root 'macos\Sources\Core.swift'))
+if ($macSrc -notmatch [regex]::Escape("let appVersion = `"$ver`"")) { throw 'The macOS app has another version: set appVersion in macos\Sources\Core.swift' }
 
 # This version's notes: from its heading to the next "## " heading.
 $start = $h.Index + $h.Length

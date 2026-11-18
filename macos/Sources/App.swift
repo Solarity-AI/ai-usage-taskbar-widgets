@@ -9,8 +9,6 @@ struct Settings: Codable {
     var alertAt: [Double] = [25, 10]
 }
 
-struct AlertState: Codable { var reset: Double = 0; var fired: [String] = [] }
-
 let launchAgentLabel = "ai.solarity.claude-usage-widget"
 var launchAgentURL: URL {
     FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents/\(launchAgentLabel).plist")
@@ -245,28 +243,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func checkAlerts(_ r: Reading) {
-        guard settings.alertsOn, let w = r.weekly, let reset = w.resetsAt else { return }
-        let key = "weekly"
-        var st = alerts[key] ?? AlertState()
-        if abs(st.reset - reset.timeIntervalSince1970) > 3600 { st = AlertState(reset: reset.timeIntervalSince1970, fired: []) }
-        var send: (String, String)?
-        let resetText = "Resets \(formatDayTime(reset)) · in \(formatSpan(hours: reset.timeIntervalSinceNow / 3600))"
-        if w.left <= 0 {
-            if !st.fired.contains("limit") { st.fired.append("limit"); send = ("Claude: weekly limit reached", resetText) }
-        } else {
-            for t in settings.alertAt.sorted() where w.left <= t {
-                let k = "\(Int(t))"
-                if !st.fired.contains(k) { st.fired.append(contentsOf: settings.alertAt.filter { $0 >= t }.map { "\(Int($0))" }); send = ("Claude: \(formatPct(w.used)) of the week used", resetText) }
-                break
-            }
-            if let p = paceSummary(paceInfo(w, samples: history[w.id] ?? [])), p.status == "Too fast", !st.fired.contains("pace") {
-                st.fired.append("pace")
-                send = send ?? ("Claude: on track to run out before the reset", p.text)
-            }
-        }
-        alerts[key] = st
+        guard settings.alertsOn, let w = r.weekly,
+              let res = weeklyAlert(w, thresholds: settings.alertAt, state: alerts["weekly"] ?? AlertState(), samples: history[w.id] ?? [])
+        else { return }
+        alerts["weekly"] = res.state
         saveJSON(alerts, "alerts.json")
-        if let (title, body) = send { notify(title, body) }
+        if let a = res.alert { notify(a.title, a.body) }
     }
 
     func notify(_ title: String, _ body: String) {

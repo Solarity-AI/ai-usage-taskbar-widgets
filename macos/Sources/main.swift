@@ -6,11 +6,18 @@
 
 import AppKit
 
-func printJSON<T: Encodable>(_ v: T) {
+/// Prints the value as JSON. false (and a message on stderr) when it can't be encoded.
+func printJSON<T: Encodable>(_ v: T) -> Bool {
     let e = JSONEncoder()
     e.outputFormatting = [.prettyPrinted, .sortedKeys]
     e.dateEncodingStrategy = .iso8601
-    print(String(data: try! e.encode(v), encoding: .utf8)!)
+    do {
+        print(String(decoding: try e.encode(v), as: UTF8.self))
+        return true
+    } catch {
+        FileHandle.standardError.write("could not encode the reading as JSON: \(error)\n".data(using: .utf8)!)
+        return false
+    }
 }
 
 func argValue(_ name: String) -> String? {
@@ -93,6 +100,51 @@ func selfTest() -> Int32 {
     check("keychain service default name", keychainServices().last == "Claude Code-credentials")
     check("sha256", sha256Hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
 
+    // Out-of-range numbers (#61): dates after 9999 count as missing, and formatting never traps.
+    check("dates up to 9999-12-31T23:59:59Z kept, later ones dropped",
+          parseDate("9999-12-31T23:59:59Z") != nil && parseDate(253_402_300_799_000) != nil
+          && parseDate(253_402_300_800_000) == nil && parseDate(1e20) == nil && parseDate(1e30) == nil)
+    let far = parseUsage(#"{"seven_day":{"utilization":40,"resets_at":1e30}}"#.data(using: .utf8)!, now: now)
+    check("a reset after 9999 leaves the limit without a reset", far?.weekly?.used == 40 && far?.weekly != nil && far?.weekly?.resetsAt == nil)
+    check("a share that isn't plausible shows a dash", formatPct(1e30) == "—" && formatPct(-1e30) == "—" && formatPct(.nan) == "—" && formatPct(.infinity) == "—")
+    check("plausible shares unchanged (105%, 61%)", formatPct(105) == "105%" && formatPct(61.4) == "61%")
+    check("a span that isn't plausible shows a dash", formatSpan(hours: 1e30) == "—" && formatSpan(hours: -1e30) == "—" && formatSpan(hours: .nan) == "—")
+
+    // Alerts: thresholds are shares left (25 and 10 = 75% and 90% used). Only titles and alert keys are checked:
+    // the bodies hold local times, which depend on the Mac's time zone.
+    var aw = LimitWindow(id: "seven_day", name: "", kind: "weekly", used: 76, windowSeconds: weekSeconds, resetsAt: now.addingTimeInterval(12 * 3600))
+    let a1 = weeklyAlert(aw, thresholds: [25, 10], state: AlertState(), samples: [], now: now)
+    check("76% used alerts once", a1?.alert?.title == "Claude: 76% of the week used" && a1?.state.fired == ["25"])
+    aw.used = 80
+    let a2 = weeklyAlert(aw, thresholds: [25, 10], state: a1?.state ?? AlertState(), samples: [], now: now)
+    check("80% used does not alert again", a2 != nil && a2?.alert == nil && a2?.state.fired == ["25"])
+    aw.used = 91
+    let a3 = weeklyAlert(aw, thresholds: [25, 10], state: a2?.state ?? AlertState(), samples: [], now: now)
+    check("91% used alerts for the 90% mark", a3?.alert?.title == "Claude: 91% of the week used" && Set(a3?.state.fired ?? []) == ["25", "10"])
+    aw.used = 100
+    let a4 = weeklyAlert(aw, thresholds: [25, 10], state: a3?.state ?? AlertState(), samples: [], now: now)
+    check("100% used alerts that the limit is reached", a4?.alert?.title == "Claude: weekly limit reached" && a4?.state.fired.contains("limit") == true)
+    var nw = aw
+    nw.used = 0.5
+    nw.resetsAt = now.addingTimeInterval(weekSeconds - 3600)
+    let a5 = weeklyAlert(nw, thresholds: [25, 10], state: a4?.state ?? AlertState(), samples: [], now: now)
+    check("a new week starts with no alerts shown", a5 != nil && a5?.alert == nil && a5?.state.fired == [] && a5?.state.reset == nw.resetsAt?.timeIntervalSince1970)
+    let pw = LimitWindow(id: "seven_day", name: "", kind: "weekly", used: 90, windowSeconds: weekSeconds, resetsAt: now.addingTimeInterval(3.5 * 86400))
+    let p1 = weeklyAlert(pw, thresholds: [], state: AlertState(), samples: [], now: now)
+    let p2 = weeklyAlert(pw, thresholds: [], state: p1?.state ?? AlertState(), samples: [], now: now)
+    check("a too-fast pace alerts once", p1?.alert?.title == "Claude: on track to run out before the reset" && p1?.state.fired == ["pace"] && p2 != nil && p2?.alert == nil)
+    aw.used = 95
+    let odd = weeklyAlert(aw, thresholds: [-5, 0, 150, 1e30, .nan, .infinity], state: AlertState(), samples: [], now: now)
+    check("thresholds outside 0–100 ignored", odd?.state.fired == ["pace"])
+    check("a share shown as a dash sends no alert", weeklyAlert(LimitWindow(id: "seven_day", name: "", kind: "weekly", used: 1e30, windowSeconds: weekSeconds, resetsAt: now.addingTimeInterval(86400)),
+                                                               thresholds: [25, 10], state: AlertState(), samples: [], now: now) == nil)
+    check("no reset time, no alert decision", weeklyAlert(LimitWindow(id: "seven_day", name: "", kind: "weekly", used: 95, windowSeconds: weekSeconds, resetsAt: nil),
+                                                         thresholds: [25, 10], state: AlertState(), samples: [], now: now) == nil)
+    let oldAlerts = try? JSONDecoder().decode([String: AlertState].self, from: #"{"weekly":{"reset":1795143581,"fired":["25","pace"]}}"#.data(using: .utf8)!)
+    check("alerts.json from 1.4.2 still loads", oldAlerts?["weekly"]?.fired == ["25", "pace"] && oldAlerts?["weekly"]?.reset == 1_795_143_581)
+    let oldSettings = try? JSONDecoder().decode(Settings.self, from: #"{"refreshMinutes":5,"alertsOn":false,"alertAt":[25,10]}"#.data(using: .utf8)!)
+    check("settings.json from 1.4.2 still loads", oldSettings?.refreshMinutes == 5 && oldSettings?.alertsOn == false && oldSettings?.alertAt == [25, 10])
+
     print("\n\(passed) passed, \(failed) failed")
     return failed == 0 ? 0 : 1
 }
@@ -114,7 +166,7 @@ func once() -> Int32 {
     case .failure(let e): print("{\"ok\":false,\"error\":\(String(reflecting: e.message))}"); return 1
     }
     switch fetchUsage(auth: auth, url: url) {
-    case .success(let r): printJSON(r); return 0
+    case .success(let r): return printJSON(r) ? 0 : 1
     case .failure(let e): print("{\"ok\":false,\"error\":\(String(reflecting: e.message))}"); return 1
     }
 }
@@ -123,7 +175,7 @@ let args = CommandLine.arguments
 if args.contains("--self-test") { exit(selfTest()) }
 if let f = argValue("--parse") {
     guard let d = FileManager.default.contents(atPath: f), let r = parseUsage(d) else { print("unexpected response"); exit(1) }
-    printJSON(r); exit(0)
+    exit(printJSON(r) ? 0 : 1)
 }
 if args.contains("--once") { exit(once()) }
 if let png = argValue("--render-preview"), let f = argValue("--from") {
@@ -162,7 +214,13 @@ if let png = argValue("--render-preview"), let f = argValue("--from") {
         }
     }
     NSGraphicsContext.restoreGraphicsState()
-    try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: png))
+    do {
+        guard let data = rep.representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
+        try data.write(to: URL(fileURLWithPath: png))
+    } catch {
+        FileHandle.standardError.write("could not write \(png): \(error.localizedDescription)\n".data(using: .utf8)!)
+        exit(1)
+    }
     print("wrote \(png) (\(Int(h)) pt tall)")
     exit(0)
 }

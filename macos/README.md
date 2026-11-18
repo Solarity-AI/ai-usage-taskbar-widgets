@@ -18,7 +18,15 @@ Codex is Windows-only for now.
 
 ## Install
 
-Run this in Terminal, from the repository folder:
+Run these in Terminal (`git` comes with the Command Line Tools):
+
+```bash
+git clone https://github.com/Solarity-AI/ai-usage-taskbar-widgets.git
+```
+
+```bash
+cd ai-usage-taskbar-widgets
+```
 
 ```bash
 ./macos/install.sh
@@ -31,9 +39,21 @@ The installer:
 3. Adds a LaunchAgent (`~/Library/LaunchAgents/ai.solarity.claude-usage-widget.plist`). It starts the widget at login and restarts it after a crash, but never after *Quit*.
 4. Starts the widget and checks that it runs and can read usage.
 
-Running the installer again updates the app in place and keeps your settings.
-
 The first reading may make macOS ask whether `security` may read `Claude Code-credentials`. Choose **Always Allow**.
+
+## Update
+
+From the `ai-usage-taskbar-widgets` folder:
+
+```bash
+git pull
+```
+
+```bash
+./macos/install.sh
+```
+
+The installer replaces the app in place and keeps your settings and history.
 
 ## Uninstall
 
@@ -67,7 +87,11 @@ Local files live in `~/Library/Application Support/ClaudeUsageWidget/`:
 | Command | What it does |
 |---|---|
 | `./macos/build.sh` | Builds `macos/build/Claude Usage.app` |
-| `./macos/test.sh` | Builds, runs `--self-test` (parsing and pace), then one-shot readings against a local mock of the usage endpoint: a 200, 401, 429, HTML, a redirect, and the headers sent. Fake sign-in, no network |
+| `./macos/test.sh` | Builds (and stops if the build fails), runs `--self-test` (parsing, pace, alerts and out-of-range values), checks that the version matches the newest `CHANGELOG.md` entry, draws 11 replies with out-of-range numbers, then makes one-shot readings against a local mock of the usage endpoint: a 200, 401, 429, HTML, a redirect, and the headers sent. Fake sign-in, no network |
+
+Pull requests that change `macos/`, `CHANGELOG.md` or the workflow run `./macos/test.sh` on GitHub as the **macOS app** check ([`.github/workflows/macos.yml`](../.github/workflows/macos.yml)).
+
+The version is `appVersion` in `macos/Sources/Core.swift`. It must match the newest `CHANGELOG.md` entry and the Windows widgets: `test.sh` and `tools/package.ps1` both check it.
 
 The app binary also takes `--once` (one live reading as JSON), `--render-preview <png> --from <response.json>` (draws the menu rows offscreen, a layout check) and `--version`.
 

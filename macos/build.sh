@@ -11,7 +11,8 @@ command -v swiftc >/dev/null || { echo "${red}❌ swiftc not found. Run: xcode-s
 
 rm -rf "$out"
 mkdir -p "$out/Contents/MacOS" "$out/Contents/Resources"
-echo "${dim}Compiling $version…${off}"
+# Braces matter: under a UTF-8 locale, bash 3.2 reads the first byte of "…" as part of a bare $version.
+echo "${dim}Compiling ${version}…${off}"
 flags=()
 # Some Command Line Tools installs keep a stale usr/include/swift/module.modulemap next to bridging.modulemap;
 # both define SwiftBridging and every build fails. Hide the stale one through a VFS overlay (nothing on disk changes).

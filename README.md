@@ -7,7 +7,7 @@
 
 Two small Windows taskbar widgets show how much of your weekly **Claude** and **Codex** allowance is used. They also show when the allowance runs out at your current pace. Everything runs on your own PC: no server, no telemetry, nothing to sign up for.
 
-**[Website](https://solarity-ai.github.io/ai-usage-taskbar-widgets/)** · **[Download the latest release](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest)** · [Changelog](CHANGELOG.md)
+**[Website](https://solarity-ai.github.io/ai-usage-taskbar-widgets/)** · **[Download the latest release](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest)** · [Mac version](macos/README.md) · [Changelog](CHANGELOG.md)
 
 <p>
   <img src="docs/images/claude-card.png" width="330" alt="Claude usage card: 55% left this week, pace box saying On pace and when it would run out, weekly and 5-hour limit bars">
@@ -21,7 +21,7 @@ Two small Windows taskbar widgets show how much of your weekly **Claude** and **
 ## What you get
 
 - **A pill on the taskbar.** A ring shows the share of the weekly allowance used, with the time until the weekly reset (or today's budget). The edge turns orange or red when little is left.
-- **A card on hover.** It shows the share left and a *Pace this week* box: *On pace*, *Cutting close* or *Too fast*, with the time the allowance runs out at your current rate. It also has a bar for every limit (weekly, 5-hour session, per-model limits) with its reset time, plus credits or extra usage when your plan has them. Click the pill to pin the card and refresh it.
+- **A card on hover.** It shows the share used and a *Pace this week* box: *On pace*, *Cutting close* or *Too fast*, with the time the allowance runs out at your current rate. It also has a bar for every limit (weekly, 5-hour session, per-model limits) with its reset time, plus credits or extra usage when your plan has them. Click the pill to pin the card and refresh it.
 - **Alerts.** Windows notifications fire at 75% and 90% used, when the limit is reached, and when you are on track to run out before the reset. Thresholds are adjustable, and alerts can be snoozed for 1 hour, until tomorrow morning or until the weekly reset.
 - **A right-click menu.** It has *Refresh now*, *Open usage page*, *Sign in again*, *Snooze alerts*, *Alerts*, *Pill shows*, *Refresh every*, *Compact pill*, *Show details* (a burn-up chart of the week and the full pace breakdown), *Show on every taskbar*, *Start with Windows*, *Uninstall* and *About* (version and website).
 - **Light and dark themes**, following Windows. Per-monitor DPI. The pills hide while a full-screen app is in front. Drag the main pill sideways to move it; the Codex pill sits next to the Claude pill.
@@ -113,8 +113,17 @@ The two widgets share one codebase. `claude-usage-widget\` is the source. In `co
 
 Edit the Claude files, run `tools\sync.ps1`, then `tests\run-tests.ps1`. Scripts must stay compatible with Windows PowerShell 5.1 and saved as UTF-8 with BOM.
 
+The macOS app lives in `macos/` (Swift, built with the Command Line Tools, no Xcode). Run these on a Mac:
+
+| Command | What it does |
+|---|---|
+| `./macos/build.sh` | Builds `macos/build/Claude Usage.app` with `swiftc` |
+| `./macos/test.sh` | Builds the app, then runs its self-tests, the version check and one-shot readings against a local mock of the usage endpoint ([details](macos/README.md#develop)) |
+
+**CI:** every pull request runs the Windows **test** check unless it changes only `macos/`. Pull requests that change `macos/` or `CHANGELOG.md` also run the **macOS app** check (`./macos/test.sh` on a macOS runner).
+
 **Releasing a version:**
-1. Raise `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1` and add a section for it at the top of `CHANGELOG.md`.
+1. Raise `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1` and `appVersion` in `macos/Sources/Core.swift`, and add a section for it at the top of `CHANGELOG.md`.
 2. Run `tools\sync.ps1` and `tests\run-tests.ps1`, then merge.
 3. Tag the merge commit `v<version>` and push the tag.
 

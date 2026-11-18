@@ -1,0 +1,21 @@
+name: macOS app
+
+# Builds the macOS menu-bar app and runs macos/test.sh: the self-tests, the version check, replies with
+# out-of-range numbers and a local stand-in for the usage API. No sign-in and no network beyond 127.0.0.1.
+on:
+  pull_request:
+    paths: ['macos/**', 'CHANGELOG.md', '.github/workflows/macos.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: macOS app
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build and test
+        run: ./macos/test.sh
