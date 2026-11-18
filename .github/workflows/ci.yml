@@ -1,9 +1,13 @@
 name: CI
 
+# Windows widgets: generated files, links, packaging and both test suites. The macOS app has its own
+# workflow (macos.yml), so changes only under macos/ skip this one.
 on:
   push:
     branches: [main]
+    paths-ignore: ['macos/**']
   pull_request:
+    paths-ignore: ['macos/**']
   workflow_dispatch:
 
 permissions:
@@ -14,7 +18,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Generated files, BOMs, parse check and both test suites
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1
