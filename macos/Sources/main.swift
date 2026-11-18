@@ -83,6 +83,14 @@ func selfTest() -> Int32 {
     w.used = 1
     check("first hour of the week is Too early to tell", paceSummary(paceInfo(w, samples: [], now: now), now: now)?.status == "Too early to tell")
 
+    // Pace for the 5-hour session: 2.5 h gone, 90% used -> runs out in about 17 min.
+    let sw = LimitWindow(id: "five_hour", name: "", kind: "session", used: 90, windowSeconds: sessionSeconds, resetsAt: now.addingTimeInterval(2.5 * 3600))
+    if let sp = paceInfo(sw, samples: [], now: now), let ss = paceSummary(sp, now: now) {
+        check("5-hour session pace: Too fast, titled per session (\(paceTitle(sp)))", ss.status == "Too fast" && paceTitle(sp) == "Pace this 5-hour session")
+        check("5-hour session pace: run-out time in about 17 min", sp.runOutAt.map { abs($0.timeIntervalSince(now) - 1000) < 1 } == true)
+        check("5-hour session pace text names the session (\(ss.text))", ss.text.hasSuffix("90% used · 50% of the session gone"))
+    } else { check("5-hour session pace exists", false) }
+
     // History: 3 h of 2-minute readings keep one sample per 5 minutes, enough for a recent rate.
     var hist: [Sample] = []
     var hw = LimitWindow(id: "seven_day", name: "", kind: "weekly", used: 20, windowSeconds: weekSeconds, resetsAt: reset)

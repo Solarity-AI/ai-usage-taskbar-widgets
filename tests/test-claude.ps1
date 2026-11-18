@@ -201,6 +201,13 @@ $close = Get-PaceInfo ([pscustomobject]@{ used = 49; window_seconds = 604800; re
 Check 'pace box: lasts with under 5% to spare -> "Cutting close" (amber)' ((Get-PaceSummary $close $nowP).status -eq 'Cutting close' -and (Get-PaceSummary $close $nowP).level -eq 'amber') (Get-PaceSummary $close $nowP).status
 Check 'pace box: first hour -> "Too early to tell" (gray); limit -> "Limit reached" with reset' ((Get-PaceSummary $early $nowP).status -eq 'Too early to tell' -and (Get-PaceSummary $early $nowP).level -eq 'gray' -and (Get-PaceSummary $lim $nowP).status -eq 'Limit reached' -and (Get-PaceSummary $lim $nowP).text -match '^Resets ') ''
 Check 'pace box: no pace -> no box' ($null -eq (Get-PaceSummary $null $nowP)) ''
+Check 'pace box: weekly box is labelled for the week' ($sm.label -eq 'PACE THIS WEEK') $sm.label
+# 5-hour session box: 2.5 h of 5 gone, 90% used -> 36 %/h, runs out in 10/36 h (16.7 min), before the reset.
+$sesP = Get-PaceInfo ([pscustomobject]@{ used = 90; window_seconds = 18000; resets_at = '2026-11-12T02:30:00Z' }) @() $nowP
+$sesS = Get-PaceSummary $sesP $nowP
+Check 'session box: "Too fast", labelled 5-hour session, run-out time, session gone' ($sesS.label -eq 'PACE THIS 5-HOUR SESSION' -and $sesS.status -eq 'Too fast' -and $sesS.level -eq 'red' -and $sesP.runs_out -and [Math]::Abs($sesP.run_out_in_h - 10 / 36.0) -lt 1e-6 -and $sesS.text -match "^At this rate it runs out \w{3} \d\d:\d\d $dotc 90% used, 50% of the session gone$") "$($sesS.label) | $($sesS.text)"
+$sesSlow = Get-PaceSummary (Get-PaceInfo ([pscustomobject]@{ used = 20; window_seconds = 18000; resets_at = '2026-11-12T02:30:00Z' }) @() $nowP) $nowP
+Check 'session box: slow use -> "On pace" and still the finish time after the reset' ($sesSlow.status -eq 'On pace' -and $sesSlow.text -match "^At this rate it runs out \w{3} \d\d:\d\d, after the reset $dotc 20% used, 50% of the session gone$") $sesSlow.text
 $rl = Format-ResetLine '2026-11-15T12:00:00Z' $now
 Check 'reset line: "Resets Sun 15 Nov, HH:mm · in 3d 0h" (no break inside the span)' ($rl -match ("^Resets \w{3} \d{1,2} \w{3}, \d\d:\d\d $dotc in 3d" + [char]0x00A0 + '0h$')) $rl
 Check 'reset line: past -> reset due; unknown -> nothing' ((Format-ResetLine '2026-11-01T00:00:00Z' $now) -like 'Reset due*' -and $null -eq (Format-ResetLine $null $now)) ''

@@ -299,8 +299,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let r = reading {
             if let w = r.weekly {
                 menu.addItem(textItem("\(formatPct(w.used)) used this week" + (plan.map { " · \($0.capitalized) plan" } ?? ""), size: 15, color: .labelColor, weight: .semibold))
+            }
+            // Pace this week, then this 5-hour session: when each limit runs out at the current pace.
+            for w in [r.weekly, r.session].compactMap({ $0 }) {
                 if let p = paceInfo(w, samples: history[w.id] ?? []), let s = paceSummary(p) {
-                    menu.addItem(rowItem(title: "Pace this week", value: s.status, fill: p.used / 100, color: colorFor(s.level),
+                    menu.addItem(rowItem(title: paceTitle(p), value: s.status, fill: p.used / 100, color: colorFor(s.level),
                                          note: s.text, marker: p.elapsedH / p.windowH))
                 }
             }

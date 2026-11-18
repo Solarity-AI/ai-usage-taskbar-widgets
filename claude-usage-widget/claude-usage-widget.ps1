@@ -62,7 +62,7 @@ $script:ExitMarkerPath = Join-Path $script:AppDir 'exited-by-user'  # left by Ex
 $script:CollectorPath = Join-Path $PSScriptRoot $script:CollectorName
 $script:UninstallPath = Join-Path $PSScriptRoot 'uninstall.ps1'
 $script:ShortcutPath  = Join-Path ([Environment]::GetFolderPath('Startup')) ('{0} Usage Widget.lnk' -f $script:ProductName)
-$script:Version       = '1.4.3'          # release version (tools\package.ps1 and the release workflow check it)
+$script:Version       = '1.5.0'          # release version (tools\package.ps1 and the release workflow check it)
 $script:HomeUrl       = 'https://solarity-ai.github.io/ai-usage-taskbar-widgets/'
 $script:CollectorTimeoutSeconds = 120   # the collector may run the official CLI
 $script:AnchorGapPx   = 8               # physical pixels between neighbouring pills / the notification area
@@ -270,16 +270,18 @@ function Format-UsedShare {
 }
 
 function Get-PaceSummary {
-    # The card's "Pace this week" box from Get-PaceInfo: status word, level, one line of text, bar fill (share
-    # used) and marker (share of the window gone).
+    # The card's pace boxes ("Pace this week", "Pace this 5-hour session") from Get-PaceInfo: box label, status
+    # word, level, one line of text, bar fill (share used) and marker (share of the window gone).
     param($Pace, $Now = [DateTime]::UtcNow)
     if ($null -eq $Pace) { return $null }
     $dot = [string][char]0x00B7
     $gone = Format-UsedShare (100.0 * $Pace.elapsed_h / $Pace.window_h)
     $usedT = Format-UsedShare $Pace.used
-    $period = $(if ($Pace.window_h -gt 24) { 'the week' } else { 'the window' })
+    $week = ($Pace.window_h -gt 24)
+    $period = $(if ($week) { 'the week' } else { 'the session' })
+    $label = $(if ($week) { 'PACE THIS WEEK' } else { ('PACE THIS {0}-HOUR SESSION' -f [Math]::Round($Pace.window_h)) })
     $plain = ('{0} used {1} {2} of {3} gone' -f $usedT, $dot, $gone, $period)
-    $s = [ordered]@{ status = 'On pace'; level = 'green'; text = $plain
+    $s = [ordered]@{ label = $label; status = 'On pace'; level = 'green'; text = $plain
                      fill = [Math]::Min(1.0, [Math]::Max(0.0, $Pace.used / 100.0))
                      marker = [Math]::Min(1.0, [Math]::Max(0.0, $Pace.elapsed_h / $Pace.window_h)) }
     if ($Pace.limited) {
@@ -1236,6 +1238,16 @@ $script:CardXaml = @'
           <TextBlock x:Name="PaceText" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"/>
         </StackPanel>
       </Border>
+      <Border x:Name="SessionPaceBox" CornerRadius="7" BorderThickness="1" Padding="10,6,10,8" Margin="0,8,0,0" Visibility="Collapsed">
+        <StackPanel>
+          <Grid>
+            <TextBlock x:Name="SessionPaceLabel" Text="PACE THIS 5-HOUR SESSION" FontSize="10.5" VerticalAlignment="Center"/>
+            <TextBlock x:Name="SessionPaceStatus" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+          </Grid>
+          <Border x:Name="SessionPaceBarHost" Margin="0,7,0,0"/>
+          <TextBlock x:Name="SessionPaceText" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"/>
+        </StackPanel>
+      </Border>
       <Border x:Name="TopDivider" Height="1" Margin="0,12,0,0"/>
       <StackPanel x:Name="Rows"/>
       <StackPanel x:Name="ChartPanel" Margin="0,14,0,0" Visibility="Collapsed">
@@ -2107,7 +2119,7 @@ function Update-View {
             foreach ($p in @($script:Pills)) { Update-PillVisual $p }
             $ui.CardHero.Text = $st.hero; $ui.CardHero.Foreground = $T.grayB; $ui.CardHero.Opacity = 1.0
             $ui.CardHeroLabel.Text = $(if ($script:Refreshing) { "reading $($script:ProductName) usage..." } else { 'used this week' })
-            foreach ($n in 'PlanBadge', 'PaceBox', 'ChartPanel', 'PaceLines', 'TopDivider') { $ui[$n].Visibility = 'Collapsed' }
+            foreach ($n in 'PlanBadge', 'PaceBox', 'SessionPaceBox', 'ChartPanel', 'PaceLines', 'TopDivider') { $ui[$n].Visibility = 'Collapsed' }
             $ui.StatusText.Text = $script:CollectorFailure
             $ui.StatusLabel.Text = 'NOT AVAILABLE'
             Set-BoxColors $ui.StatusBar $T.pace.amber $ui.StatusLabel $ui.StatusText
@@ -2206,17 +2218,19 @@ function Update-View {
         Set-BoxColors $ui.StatusBar $(if ($warn) { $T.pace.amber } else { $T.pace.gray }) $ui.StatusLabel $ui.StatusText
         $ui.StatusBar.Visibility = $(if ($status.Count -gt 0) { 'Visible' } else { 'Collapsed' })
 
-        # Pace this week
-        $ps = Get-PaceSummary $wp $now
-        if ($null -ne $ps) {
+        # Pace this week, then pace this 5-hour session: each says when that limit runs out at the current pace.
+        foreach ($pb in @(@{ pre = ''; pace = $wp }, @{ pre = 'Session'; pace = $sp })) {
+            $box = $ui[$pb.pre + 'PaceBox']
+            $ps = Get-PaceSummary $pb.pace $now
+            if ($null -eq $ps) { $box.Visibility = 'Collapsed'; continue }
             $pal = $T.pace[$ps.level]
-            Set-BoxColors $ui.PaceBox $pal $ui.PaceLabel $ui.PaceText $ui.PaceStatus
-            $ui.PaceLabel.Text = $(if ($wp.window_h -gt 24) { 'PACE THIS WEEK' } else { 'PACE THIS WINDOW' })
-            $ui.PaceStatus.Text = $ps.status
-            $ui.PaceText.Text = $ps.text
-            $ui.PaceBarHost.Child = New-Bar $ps.fill $T[$(if ($ps.level -eq 'amber') { 'amber' } elseif ($ps.level -eq 'gray') { 'gray' } else { $ps.level }) + 'GradB'] $pal.track 4 $ps.marker $pal.marker
-            $ui.PaceBox.Visibility = 'Visible'
-        } else { $ui.PaceBox.Visibility = 'Collapsed' }
+            Set-BoxColors $box $pal $ui[$pb.pre + 'PaceLabel'] $ui[$pb.pre + 'PaceText'] $ui[$pb.pre + 'PaceStatus']
+            $ui[$pb.pre + 'PaceLabel'].Text = $ps.label
+            $ui[$pb.pre + 'PaceStatus'].Text = $ps.status
+            $ui[$pb.pre + 'PaceText'].Text = $ps.text
+            $ui[$pb.pre + 'PaceBarHost'].Child = New-Bar $ps.fill $T[$ps.level + 'GradB'] $pal.track 4 $ps.marker $pal.marker
+            $box.Visibility = 'Visible'
+        }
 
         # Limit rows: weekly first, then the 5-hour session, then per-model limits.
         $first = $true
@@ -2245,7 +2259,7 @@ function Update-View {
 
         # Stale: the whole card reads as "last known", like the dimmed pill, not as current numbers.
         $staleOpacity = $(if ($stale) { 0.55 } else { 1.0 })
-        foreach ($n in 'CardHero', 'Rows', 'ChartPanel', 'PaceBox', 'PaceLines', 'HeroLines') { $ui[$n].Opacity = $staleOpacity }
+        foreach ($n in 'CardHero', 'Rows', 'ChartPanel', 'PaceBox', 'SessionPaceBox', 'PaceLines', 'HeroLines') { $ui[$n].Opacity = $staleOpacity }
 
         $srcText = switch ($d.source) { 'live' { 'from this PC' } 'cache' { $(if ($stale) { '(saved reading)' } else { 'from this PC' }) } 'session_log' { 'from the local session log' } 'cli' { $(if ($tag -eq 'claude') { 'via Claude Code' } else { 'via the Codex CLI' }) } default { '' } }
         $f = ConvertTo-UtcTime $d.fetched_at
