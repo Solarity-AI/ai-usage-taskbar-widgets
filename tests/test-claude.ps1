@@ -142,7 +142,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile($Widget, [ref]$
 $want = 'ConvertTo-UtcTime', 'ConvertTo-Unix', 'Get-Left', 'Format-Percent', 'Get-LevelKey', 'Format-Span', 'Get-ResetText', 'Format-LocalTime', 'Format-Rate',
     'Get-PaceInfo', 'Get-PaceView', 'Write-AtomicText', 'Get-PillFitHeight', 'New-History', 'Read-History', 'Add-HistorySample', 'ConvertTo-HistoryJson', 'Get-ClearX', 'Write-Log',
     'Format-Number', 'Format-Share', 'Test-Snoozed', 'Get-SnoozeUntil', 'Format-SnoozeEnd', 'Find-SignInCli', 'Find-BundledClaudeCli', 'Get-SameWindowSamples', 'Get-DailyBudget', 'Get-ChartGeometry', 'Get-Trend', 'Get-AlertsDue', 'ConvertTo-Settings', 'Add-WindowSample', 'Get-SpendValue', 'Format-DayTime', 'Format-ResetLine', 'Format-UsedShare', 'Get-PaceSummary', 'Get-WindowLabel', 'Invoke-Alerts', 'Get-BindingLimit',
-    'Read-JsonFile', 'Write-FlushedText', 'Save-CorruptCopy', 'Read-AlertsSent', 'Test-AlertSent', 'Get-ClampedPosition'
+    'Read-JsonFile', 'Write-FlushedText', 'Save-CorruptCopy', 'Test-InBackoff', 'Test-CollectorBusy', 'Read-AlertsSent', 'Test-AlertSent', 'Get-ClampedPosition'
 $script:AppDir = $Root; $script:LogPath = Join-Path $Root 'widget.log'; $script:HistoryDays = 15; $script:AnchorGapPx = 8; $script:Inv = [Globalization.CultureInfo]::InvariantCulture
 foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $n.Name }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
 foreach ($a2 in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -in '$script:PillXaml', '$script:CardXaml', '$script:Thresholds' }, $true)) { . ([scriptblock]::Create($a2.Extent.Text)) }
@@ -230,8 +230,9 @@ $q5b = Get-DailyBudget ([pscustomobject]@{ used = 60; window_seconds = 604800; r
 Check 'QA-05: a reading from days before midnight does not count as today''s use' ($null -eq $q5b -or $q5b.used_today -lt 10) "$($q5b.used_today)"
 Check 'QA-07: 99.6% used reads "99%" (matches "<1%" left), 100 reads "100%"' ((Format-UsedShare 99.6) -eq '99%' -and (Format-UsedShare 100) -eq '100%') (Format-UsedShare 99.6)
 $wsrc = [IO.File]::ReadAllText($Widget); $usrc = [IO.File]::ReadAllText((Join-Path $Dir 'uninstall.ps1'))
-Check 'QA-03: uninstall, collector and widget never hold the install folder as working directory' ($wsrc -match "-WorkingDirectory \`$env:USERPROFILE -ArgumentList @\('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File'" -and $wsrc -match '\$psi\.WorkingDirectory = \$env:USERPROFILE' -and $wsrc -match '\[Environment\]::CurrentDirectory = \$env:USERPROFILE' -and $usrc -match '\[Environment\]::CurrentDirectory = \$env:USERPROFILE') ''
-Check 'QA-06: a click during a 429/5xx backoff does not force a request' ($wsrc -match 'Start-Refresh \(-not \$inBackoff\)') ''
+Check 'QA-03 (source check: process start options): uninstall, collector and widget never hold the install folder as working directory' ($wsrc -match "-WorkingDirectory \`$env:USERPROFILE -ArgumentList @\('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File'" -and $wsrc -match '\$psi\.WorkingDirectory = \$env:USERPROFILE' -and $wsrc -match '\[Environment\]::CurrentDirectory = \$env:USERPROFILE' -and $usrc -match '\[Environment\]::CurrentDirectory = \$env:USERPROFILE') ''
+$bo = { param($c) [pscustomobject]@{ error = [pscustomobject]@{ code = $c } } }
+Check 'QA-06: a click during a 429/5xx backoff does not force a request (#73: behavior)' ((Test-InBackoff (& $bo 'http_429')) -and (Test-InBackoff (& $bo 'http_503')) -and -not (Test-InBackoff (& $bo 'http_401')) -and -not (Test-InBackoff (& $bo 'auth_expired')) -and -not (Test-InBackoff $null) -and -not (Test-InBackoff ([pscustomobject]@{ error = $null })) -and $wsrc.Contains('Start-Refresh (-not (Test-InBackoff $script:Data))')) ''
 # Pill/hero show the limit that runs out first
 $bn = [DateTime]::SpecifyKind([DateTime]'2026-11-14T12:00:00', 'Utc')
 $bw = { param($u) [pscustomobject]@{ used = $u; window_seconds = 604800; resets_at = '2026-11-18T12:00:00Z' } }
@@ -439,8 +440,10 @@ Check 'watchdog: stale heartbeat once after sleep, responding -> wait (no restar
 Check 'watchdog: stale twice in a row -> replace' ((Wd @{ HeartbeatAge = 600; WasStale = $true }) -eq 'replace') ''
 Check 'watchdog: stale and not responding -> replace' ((Wd @{ HeartbeatAge = 600; Responding = $false }) -eq 'replace') ''
 Check 'watchdog: not responding but heartbeat fresh -> nothing' ((Wd @{ Responding = $false }) -eq 'none') ''
-Check 'widget: Exit leaves the marker, start clears it, UI writes a heartbeat' ($src -match '(?s)function Stop-Widget \{.*?ExitMarkerPath.*?\n\}' -and $src -match 'Remove-Item -LiteralPath \$script:ExitMarkerPath' -and $src -match '(?s)RenderTimer\.add_Tick\(\{.*?Write-Heartbeat') ''
-Check 'widget: collector timeout also covers an exited collector whose output pipe is still held' ($src -match 'if \(-not \$p\.HasExited -or -not \$script:ProcOut\.IsCompleted\)') ''
+Check 'widget (source check: WPF wiring): Exit leaves the marker, start clears it, UI writes a heartbeat' ($src -match '(?s)function Stop-Widget \{.*?ExitMarkerPath.*?\n\}' -and $src -match 'Remove-Item -LiteralPath \$script:ExitMarkerPath' -and $src -match '(?s)RenderTimer\.add_Tick\(\{.*?Write-Heartbeat') ''
+$pr = { param($exited, $done) @([pscustomobject]@{ HasExited = $exited }, [pscustomobject]@{ IsCompleted = $done }) }
+$b1 = & $pr $false $false; $b2 = & $pr $true $false; $b3 = & $pr $true $true
+Check 'widget: collector timeout also covers an exited collector whose output pipe is still held (#73: behavior)' ((Test-CollectorBusy $b1[0] $b1[1]) -and (Test-CollectorBusy $b2[0] $b2[1]) -and -not (Test-CollectorBusy $b3[0] $b3[1]) -and $src.Contains('if (Test-CollectorBusy $p $script:ProcOut)')) ''
 
 # ---- collector timeout stops the whole process tree (#23), including children left by an exited collector
 foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Stop-ProcessTree' }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
@@ -480,9 +483,9 @@ $colSrc = [IO.File]::ReadAllText($Collector)
 $cxSrc = [IO.File]::ReadAllText((Join-Path (Split-Path $Dir) 'codex-usage-widget\codex-usage.ps1'))
 $insSrc = [IO.File]::ReadAllText((Join-Path $Dir 'install.ps1')); $unSrc = [IO.File]::ReadAllText((Join-Path $Dir 'uninstall.ps1')); $wdSrc = [IO.File]::ReadAllText((Join-Path $Dir 'watchdog.ps1'))
 Check '#35: collectors end the whole CLI tree on timeout (taskkill /T)' ($colSrc -match 'Invoke-TreeKill \$p' -and $colSrc -match '/T /F /PID' -and $cxSrc -match 'WaitForExit\(3000\)\) \{ Invoke-TreeKill \$p' -and $cxSrc -match '/T /F /PID') ''
-Check '#35: widget tick error stops the collector tree (Reset-Refresh)' ($src -match '(?s)function Reset-Refresh \{.*?Stop-ProcessTree' -and $src -match 'catch \{[^}]*Reset-Refresh') ''
+Check '#35 (source check: WPF timer wiring): widget tick error stops the collector tree (Reset-Refresh)' ($src -match '(?s)function Reset-Refresh \{.*?Stop-ProcessTree' -and $src -match 'catch \{[^}]*Reset-Refresh') ''
 Check '#35: watchdog replace ends each widget tree' ($wdSrc -match '/T /F /PID') ''
-Check '#37: lost mouse capture ends a drag (LostMouseCapture -> Complete-Drag)' ($src -match '(?s)add_LostMouseCapture\(\{.*?Complete-Drag') ''
+Check '#37 (source check: WPF event wiring): lost mouse capture ends a drag (LostMouseCapture -> Complete-Drag)' ($src -match '(?s)add_LostMouseCapture\(\{.*?Complete-Drag') ''
 Check '#30: reinstall keeps Start with Windows off' ($insSrc -match '\$HadShortcut\s*=\s*Test-Path' -and $insSrc -match 'if \(\$WasInstalled -and -not \$HadShortcut\)') ''
 Check '#31: uninstaller task may start on battery' ($unSrc -match 'Register-ScheduledTask[^\n]*-Settings \$settings' -and $unSrc -match 'AllowStartIfOnBatteries') ''
 # #38 regression: a failed process query never starts a second widget

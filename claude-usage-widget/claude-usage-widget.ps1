@@ -1614,8 +1614,7 @@ function New-Pill {
                 $script:CardPinned = $true
                 if ($null -eq $script:Proc -and ([DateTime]::UtcNow - $script:LastClickRefresh).TotalSeconds -ge 20) {
                     # During a rate-limit or server-error backoff a click must not force another request (each 429 doubles the wait).
-                    $inBackoff = ($null -ne $script:Data -and $null -ne $script:Data.error -and [string]$script:Data.error.code -match '^http_(429|5\d\d)$')
-                    $script:LastClickRefresh = [DateTime]::UtcNow; $script:ManualRefresh = $true; Start-Refresh (-not $inBackoff)
+                    $script:LastClickRefresh = [DateTime]::UtcNow; $script:ManualRefresh = $true; Start-Refresh (-not (Test-InBackoff $script:Data))
                 }
                 Show-Card $pp $true
             }
@@ -1749,12 +1748,24 @@ function Write-CollectorLog {
     Write-Log $Line
 }
 
+function Test-InBackoff {
+    # A rate-limit or server-error reading: a click must not force another request then (each 429 doubles the wait).
+    param($Data)
+    return ($null -ne $Data -and $null -ne $Data.error -and [string]$Data.error.code -match '^http_(429|5\d\d)$')
+}
+
+function Test-CollectorBusy {
+    # Still running, or exited while a child it left still holds the output pipe open (time that out too).
+    param($Proc, $OutTask)
+    return (-not $Proc.HasExited -or -not $OutTask.IsCompleted)
+}
+
 function Complete-Refresh {
     $p = $script:Proc
     if ($null -eq $p) { return }
     $elapsed = ([DateTime]::UtcNow - $script:ProcStarted).TotalSeconds
     # A child left holding the output pipe keeps ProcOut open after the collector exits: time that out too.
-    if (-not $p.HasExited -or -not $script:ProcOut.IsCompleted) {
+    if (Test-CollectorBusy $p $script:ProcOut) {
         if ($elapsed -lt $script:CollectorTimeoutSeconds) { return }
         try { [void](Stop-ProcessTree $p.Id -SkipRoot:$p.HasExited) } catch { }
         try { $p.Dispose() } catch { }
