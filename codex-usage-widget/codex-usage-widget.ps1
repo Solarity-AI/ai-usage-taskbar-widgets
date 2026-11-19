@@ -1032,6 +1032,13 @@ namespace UsageWidget {
         // A foreground-change hook puts the pills back on top at once instead of up to 1.5 s later.
         delegate void WinEventProc(IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
         [DllImport("user32.dll")] static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr mod, WinEventProc proc, uint pid, uint tid, uint flags);
+        [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr hWnd, uint cmd);
+        delegate void TimerProc(IntPtr hWnd, uint msg, UIntPtr id, uint time);
+        [DllImport("user32.dll")] static extern UIntPtr SetTimer(IntPtr hWnd, UIntPtr id, uint ms, TimerProc proc);
+        [DllImport("user32.dll")] static extern bool KillTimer(IntPtr hWnd, UIntPtr id);
+        static TimerProc followUpProc;
+        static UIntPtr followUpTimer = UIntPtr.Zero;
+        static int followUps;
         static WinEventProc foregroundProc;
         static IntPtr foregroundHook = IntPtr.Zero;
         static IntPtr[] topmostHandles = new IntPtr[0];
@@ -1046,11 +1053,58 @@ namespace UsageWidget {
             }
         }
 
+        // True when a taskbar window sits over rect me. Only the taskbar counts: menus, flyouts and tooltips that
+        // open over a pill must stay on top of it.
+        public static bool TaskbarCovers(string[] classes, RECT[] rects, RECT me) {
+            for (int i = 0; i < classes.Length && i < rects.Length; i++) {
+                if (classes[i] != "Shell_TrayWnd" && classes[i] != "Shell_SecondaryTrayWnd") continue;
+                RECT r = rects[i];
+                if (r.Left < me.Right && r.Right > me.Left && r.Top < me.Bottom && r.Bottom > me.Top) return true;
+            }
+            return false;
+        }
+
+        static bool TaskbarAbove(IntPtr me) {
+            RECT mine;
+            if (!GetWindowRect(me, out mine)) return false;
+            var classes = new List<string>(); var rects = new List<RECT>();
+            int seen = 0;
+            for (IntPtr h = GetWindow(me, 3); h != IntPtr.Zero && ++seen < 512; h = GetWindow(h, 3)) {   // GW_HWNDPREV: windows above
+                if (!IsWindowVisible(h)) continue;
+                RECT r;
+                if (!GetWindowRect(h, out r)) continue;
+                StringBuilder sb = new StringBuilder(64);
+                GetClassName(h, sb, 64);
+                classes.Add(sb.ToString()); rects.Add(r);
+            }
+            return TaskbarCovers(classes.ToArray(), rects.ToArray(), mine);
+        }
+
+        // The taskbar raises itself a moment after it takes the foreground, so after the hook has already run.
+        // The 250 ms tick calls this to put a covered pill back on top; returns how many pills it raised.
+        public static int RaiseIfCovered() {
+            int n = 0;
+            foreach (IntPtr h in topmostHandles) {
+                if (h == IntPtr.Zero || !IsWindow(h) || !IsWindowVisible(h) || !TaskbarAbove(h)) continue;
+                SetWindowPos(h, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0200);   // NOSIZE NOMOVE NOACTIVATE NOOWNERZORDER
+                n++;
+            }
+            return n;
+        }
+
         public static bool WatchForeground() {
             if (foregroundHook != IntPtr.Zero) return true;
+            // The taskbar raises itself just after it takes the foreground, so after this hook has run: a
+            // thread timer re-checks every 30 ms for 600 ms and puts a covered pill back on top at once.
+            followUpProc = delegate (IntPtr w, uint msg, UIntPtr id, uint t) {
+                RaiseIfCovered();
+                if (++followUps >= 20 && followUpTimer != UIntPtr.Zero) { KillTimer(IntPtr.Zero, followUpTimer); followUpTimer = UIntPtr.Zero; }
+            };
             foregroundProc = delegate (IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time) {
                 foregroundChanges++;
                 RaiseTopmost();
+                followUps = 0;
+                if (followUpTimer == UIntPtr.Zero) followUpTimer = SetTimer(IntPtr.Zero, UIntPtr.Zero, 30, followUpProc);
             };
             // EVENT_SYSTEM_FOREGROUND, out of context: delivered on this (UI) thread's message loop.
             foregroundHook = SetWinEventHook(3, 3, IntPtr.Zero, foregroundProc, 0, 0, 0);
@@ -2538,6 +2592,8 @@ function Start-Widget {
             try { Update-Placement } catch { Write-Log "placement error: $($_.Exception.Message)" }
         }
     })
+    # The taskbar raises itself just after the foreground hook runs; this puts a covered pill back within 250 ms.
+    $script:TickTimer.add_Tick({ try { [void][UsageWidget.Native]::RaiseIfCovered() } catch { Write-Log "raise error: $($_.Exception.Message)" } })
     if (-not [UsageWidget.Native]::WatchForeground()) { Write-Log 'foreground hook unavailable; the pills re-assert topmost every 1.5 s only' }
     $script:PlaceTimer = New-Object Windows.Threading.DispatcherTimer
     $script:PlaceTimer.Interval = [TimeSpan]::FromMilliseconds(1500)

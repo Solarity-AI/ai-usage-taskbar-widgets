@@ -509,6 +509,12 @@ Check '#38: watchdog process query failed -> no start, logged, no state change' 
 foreach ($fn in 'Initialize-Native') { foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $fn }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) } }
 Initialize-Native
 Check 'full screen: Start, Search, Task View and Alt+Tab never hide the pills' ([UsageWidget.Native]::IsShellSurface('Windows.UI.Core.CoreWindow', 'SearchHost') -and [UsageWidget.Native]::IsShellSurface('Windows.UI.Core.CoreWindow', 'StartMenuExperienceHost') -and [UsageWidget.Native]::IsShellSurface('XamlExplorerHostIslandWindow', 'explorer') -and [UsageWidget.Native]::IsShellSurface('MultitaskingViewFrame', '')) ''
+$pillR = New-Object UsageWidget.RECT; $pillR.Left = 1130; $pillR.Top = 822; $pillR.Right = 1251; $pillR.Bottom = 857
+$barR = New-Object UsageWidget.RECT; $barR.Left = 0; $barR.Top = 816; $barR.Right = 1536; $barR.Bottom = 864
+$menuR = New-Object UsageWidget.RECT; $menuR.Left = 1000; $menuR.Top = 500; $menuR.Right = 1300; $menuR.Bottom = 850
+$otherR = New-Object UsageWidget.RECT; $otherR.Left = 1536; $otherR.Top = 816; $otherR.Right = 3072; $otherR.Bottom = 864
+Check 'taskbar click: a taskbar raised over a pill is detected' ([UsageWidget.Native]::TaskbarCovers([string[]]@('#32768', 'Shell_TrayWnd'), [UsageWidget.RECT[]]@($menuR, $barR), $pillR)) ''
+Check 'taskbar click: menus over a pill and other monitors'' taskbars are left alone' (-not [UsageWidget.Native]::TaskbarCovers([string[]]@('#32768', 'Shell_SecondaryTrayWnd'), [UsageWidget.RECT[]]@($menuR, $otherR), $pillR)) ''
 Check 'full screen: a game, video or the lock screen still hides them' (-not [UsageWidget.Native]::IsShellSurface('UnityWndClass', 'game') -and -not [UsageWidget.Native]::IsShellSurface('Chrome_WidgetWin_1', 'chrome') -and -not [UsageWidget.Native]::IsShellSurface('Windows.UI.Core.CoreWindow', 'LockApp')) ''
 
 $results | Format-Table -AutoSize -Wrap | Out-String -Width 220
