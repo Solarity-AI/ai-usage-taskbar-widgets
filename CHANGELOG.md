@@ -2,6 +2,18 @@
 
 Each release is listed here, newest first. The version is `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1` and `appVersion` in `macos/Sources/Core.swift`; tagging `v<version>` publishes it as a GitHub release with downloadable zips.
 
+## 1.5.1 (2026-11-18)
+
+**Fixed:** sign-in errors told you to run `claude` in a terminal, which people who use only the desktop app can't do. They now say to right-click the widget and choose *Sign in again*, with the terminal as the fallback ([#71](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/71)).
+
+**Fixed:** settings, history, cache and state files are now written to disk before they replace the old ones, so a power cut can't leave an empty file. A settings or history file that can't be read is kept as `<name>.corrupt` instead of being overwritten ([#75](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/75)).
+
+**Changed:** when the collector can't save its cache or state, the widget's log now says so ([#74](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/74)).
+
+**Develop:** `tests\run-tests.ps1 -Suite Claude|Codex` runs one suite ([#72](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/72)); the tests no longer use a Claude Code installed on the PC ([#70](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/70)) and 2 more of them run the real code ([#73](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/73)); CI runs PSScriptAnalyzer through `tools\lint.ps1` ([#76](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/76)).
+
+The Mac app is unchanged apart from the version number.
+
 ## 1.5.0 (2026-11-18)
 
 **New:** the hover card has a second pace box, *Pace this 5-hour session*, under *Pace this week*. Like the weekly box, it says *On pace*, *Cutting close*, *Too fast* or *Limit reached* and when the 5-hour session runs out at your current pace. The Mac menu shows the same row ([#67](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/67)).
