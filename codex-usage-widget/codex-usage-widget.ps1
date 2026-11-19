@@ -680,12 +680,26 @@ function Write-Log {
     } catch { }
 }
 
+function Write-FlushedText {
+    # UTF-8 without BOM, flushed to disk before the caller swaps the file in, so a power cut can't leave it empty.
+    param([string]$Path, [string]$Text)
+    $bytes = (New-Object Text.UTF8Encoding($false)).GetBytes($Text)
+    $fs = New-Object IO.FileStream($Path, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try { $fs.Write($bytes, 0, $bytes.Length); $fs.Flush($true) } finally { $fs.Dispose() }
+}
+
+function Save-CorruptCopy {
+    # Keep a file that failed to parse as <name>.corrupt (last one wins) before it gets rewritten with defaults.
+    param([string]$Path)
+    try { if (Test-Path -LiteralPath $Path -PathType Leaf) { Copy-Item -LiteralPath $Path -Destination "$Path.corrupt" -Force } } catch { Write-Log "could not keep $(Split-Path -Leaf $Path).corrupt: $($_.Exception.Message)" }
+}
+
 function Write-AtomicText {
     # Temp file + swap. [NullString]::Value is required: PowerShell passes $null to a .NET string parameter
     # as "", which makes File.Replace throw "The path is not of a legal form" whenever the target exists.
     param([string]$Path, [string]$Text)
     $tmp = "$Path.$PID.tmp"
-    [IO.File]::WriteAllText($tmp, $Text, (New-Object Text.UTF8Encoding($false)))
+    Write-FlushedText $tmp $Text
     for ($i = 0; $i -lt 4; $i++) {
         try {
             if (Test-Path -LiteralPath $Path) { [IO.File]::Replace($tmp, $Path, [NullString]::Value) } else { [IO.File]::Move($tmp, $Path) }
@@ -697,7 +711,7 @@ function Write-AtomicText {
 
 function Read-JsonFile {
     param([string]$Path)
-    try { if (Test-Path -LiteralPath $Path) { return ([IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8) | ConvertFrom-Json) } } catch { Write-Log "unreadable: $(Split-Path -Leaf $Path)" }
+    try { if (Test-Path -LiteralPath $Path) { return ([IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8) | ConvertFrom-Json) } } catch { Write-Log "unreadable: $(Split-Path -Leaf $Path), kept as .corrupt"; Save-CorruptCopy $Path }
     return $null
 }
 
@@ -736,7 +750,7 @@ function Read-History {
             }
             foreach ($row in @($j.c)) { $a = @($row); if ($a.Count -ge 2 -and $null -ne $a[0] -and $null -ne $a[1]) { [void]$h.c.Add(@{ t = [double]$a[0]; v = [double]$a[1] }) } }
         }
-    } catch { Write-Log 'history unreadable; starting a new one' }
+    } catch { Write-Log 'history unreadable; kept as .corrupt, starting a new one'; Save-CorruptCopy $Path }
     return $h
 }
 
@@ -2207,7 +2221,7 @@ function Update-View {
         if ($d.source -eq 'session_log' -and $d.account_verified -ne $true) { [void]$status.Add('From a local session log whose account could not be confirmed.') }
         if (@($d.reset_passed).Count -gt 0) { [void]$status.Add('A limit window has reset since this reading; waiting for a new one.') }
         if ($d.error -and $d.error.message) { [void]$status.Add([string]$d.error.message) }
-        if ($needsSignIn) { [void]$status.Add(('To fix it: right-click the pill ' + [char]0x203A + ' Sign in again.')) }
+        if ($needsSignIn -and [string]$d.error.message -notmatch 'Sign in again') { [void]$status.Add(('To fix it: right-click the pill ' + [char]0x203A + ' Sign in again.')) }
         if ($script:CollectorFailure) { [void]$status.Add($script:CollectorFailure) }
         # Placement notes only when the pill could not go where it belongs (a small nudge left is not news).
         foreach ($n in @($script:Pills | Where-Object { $_.Note -and $_.Mode -ne 'manual' } | ForEach-Object { $_.Note } | Select-Object -Unique)) { [void]$status.Add($n) }

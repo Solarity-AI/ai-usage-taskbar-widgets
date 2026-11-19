@@ -440,6 +440,14 @@ function Read-Cache {
     } catch { return $null }
 }
 
+function Write-FlushedText {
+    # Flushed to disk before the swap, so a power cut can't leave an empty file behind.
+    param([string]$Path, [string]$Text)
+    $bytes = $script:Utf8NoBom.GetBytes($Text)
+    $fs = New-Object IO.FileStream($Path, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try { $fs.Write($bytes, 0, $bytes.Length); $fs.Flush($true) } finally { $fs.Dispose() }
+}
+
 function Write-Cache {
     param([string]$Path, [string]$Salt, [string]$Tag, $Obs)
     $dir = Split-Path -Parent $Path
@@ -447,7 +455,7 @@ function Write-Cache {
     $doc = [ordered]@{ schema_version = 1; salt = $Salt; account_tag = $Tag; observation = $Obs }
     $json = ConvertTo-Json -InputObject $doc -Depth 12
     $tmp = "$Path.$PID.tmp"
-    [IO.File]::WriteAllText($tmp, $json, $script:Utf8NoBom)
+    Write-FlushedText $tmp $json
     for ($i = 0; $i -lt 4; $i++) {
         try {
             # [NullString]::Value, not $null: PowerShell would pass "" and File.Replace would always throw.
@@ -481,7 +489,7 @@ function Write-State {
         $dir = Split-Path -Parent $Path
         if (-not (Test-Path -LiteralPath $dir)) { [void](New-Item -ItemType Directory -Path $dir -Force) }
         $tmp = "$Path.$PID.tmp"
-        [IO.File]::WriteAllText($tmp, (ConvertTo-Json -InputObject ([pscustomobject]$State) -Compress), $script:Utf8NoBom)
+        Write-FlushedText $tmp (ConvertTo-Json -InputObject ([pscustomobject]$State) -Compress)
         if (Test-Path -LiteralPath $Path) { [IO.File]::Replace($tmp, $Path, [NullString]::Value) } else { [IO.File]::Move($tmp, $Path) }
     } catch { Remove-Item -LiteralPath "$Path.$PID.tmp" -Force -ErrorAction SilentlyContinue }
 }

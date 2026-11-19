@@ -95,8 +95,14 @@ $v9 = Join-Path $cc (Join-Path '2.1.9' 'aaa'); $v10 = Join-Path $cc (Join-Path '
 [IO.File]::WriteAllText((Join-Path $v9 'claude.exe'), 'not a program', $utf8)
 Copy-Item (Join-Path $env:SystemRoot 'System32\whoami.exe') (Join-Path $v10 'claude.exe')
 Remove-Item (Join-Path $Root 'cache\collector-state.json') -Force
-$oldApp = $env:LOCALAPPDATA; $oldRoam = $env:APPDATA; $env:LOCALAPPDATA = $app; $env:APPDATA = (Join-Path $Root 'no-appdata')
-try { $x = Run @('-Force') $cfg '' } finally { $env:LOCALAPPDATA = $oldApp; $env:APPDATA = $oldRoam }
+# #70: isolated profile, so a Claude Code installed on this PC (%USERPROFILE%\.local\bin, PATH) can't leak into the test.
+function Invoke-IsolatedProfile([scriptblock]$Body) {
+    $saved = @{}; foreach ($k in 'LOCALAPPDATA', 'APPDATA', 'USERPROFILE', 'HOME', 'PATH') { $saved[$k] = [Environment]::GetEnvironmentVariable($k) }
+    $env:LOCALAPPDATA = $app; $env:APPDATA = (Join-Path $Root 'no-appdata'); $env:USERPROFILE = (Join-Path $Root 'profile'); $env:HOME = $env:USERPROFILE
+    $env:PATH = (Join-Path $env:SystemRoot 'System32') + ';' + $env:SystemRoot
+    try { & $Body } finally { foreach ($k in @($saved.Keys)) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) } }
+}
+$x = Invoke-IsolatedProfile { Run @('-Force') $cfg '' }
 Check '#52: bundled desktop-app CLI found, newest version' ($x.diag -match 'renew=exit_' -and $x.diag -notmatch 'renew=(no_cli|start_failed)') $x.diag
 Set-Creds $future
 Remove-Item (Join-Path $Root 'cache\collector-state.json') -Force
@@ -120,6 +126,7 @@ Check 'account change -> cache not used, unavailable' ($ac.diag -match 'cache=in
 Remove-Item (Join-Path $cfg '.credentials.json')
 $m = Run @('-Force')
 Check 'missing sign-in -> auth_missing, no HTTP' ($m.json.error.code -eq 'auth_missing' -and $m.diag -match 'http_calls=0') $m.json.error.message
+Check '#71: sign-in errors point to Sign in again, terminal only as fallback' ($m.json.error.message.Contains('choose Sign in again (or run "claude" in a terminal)')) $m.json.error.message
 $ch = Run @('-Force') (Join-Path $Root 'nope')
 Check 'missing CLAUDE_CONFIG_DIR honored (no fallback)' ($ch.json.error.code -eq 'config_missing') $ch.json.error.message
 $cb = Run @('-Force') 'C:\bad|dir?'
@@ -135,7 +142,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile($Widget, [ref]$
 $want = 'ConvertTo-UtcTime', 'ConvertTo-Unix', 'Get-Left', 'Format-Percent', 'Get-LevelKey', 'Format-Span', 'Get-ResetText', 'Format-LocalTime', 'Format-Rate',
     'Get-PaceInfo', 'Get-PaceView', 'Write-AtomicText', 'Get-PillFitHeight', 'New-History', 'Read-History', 'Add-HistorySample', 'ConvertTo-HistoryJson', 'Get-ClearX', 'Write-Log',
     'Format-Number', 'Format-Share', 'Test-Snoozed', 'Get-SnoozeUntil', 'Format-SnoozeEnd', 'Find-SignInCli', 'Find-BundledClaudeCli', 'Get-SameWindowSamples', 'Get-DailyBudget', 'Get-ChartGeometry', 'Get-Trend', 'Get-AlertsDue', 'ConvertTo-Settings', 'Add-WindowSample', 'Get-SpendValue', 'Format-DayTime', 'Format-ResetLine', 'Format-UsedShare', 'Get-PaceSummary', 'Get-WindowLabel', 'Invoke-Alerts', 'Get-BindingLimit',
-    'Read-JsonFile', 'Read-AlertsSent', 'Test-AlertSent', 'Get-ClampedPosition'
+    'Read-JsonFile', 'Write-FlushedText', 'Save-CorruptCopy', 'Read-AlertsSent', 'Test-AlertSent', 'Get-ClampedPosition'
 $script:AppDir = $Root; $script:LogPath = Join-Path $Root 'widget.log'; $script:HistoryDays = 15; $script:AnchorGapPx = 8; $script:Inv = [Globalization.CultureInfo]::InvariantCulture
 foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $n.Name }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
 foreach ($a2 in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -in '$script:PillXaml', '$script:CardXaml', '$script:Thresholds' }, $true)) { . ([scriptblock]::Create($a2.Extent.Text)) }
@@ -246,6 +253,12 @@ $h2 = Read-History $hp
 Check 'history: JSON round trip keeps rows, prunes >15 days' ($h2.w.Count -eq 2 -and $h2.w[0].u -eq 60 -and $h2.w[0].r -eq $rU) ([IO.File]::ReadAllText($hp))
 [IO.File]::WriteAllText($hp, 'not json')
 Check 'history: corrupt file -> empty history, no crash' ((Read-History $hp).w.Count -eq 0) ''
+Check '#75: corrupt history kept as .corrupt' ((Test-Path -LiteralPath "$hp.corrupt") -and [IO.File]::ReadAllText("$hp.corrupt") -eq 'not json') ''
+$jp = Join-Path $Root 'atomic.json'
+[IO.File]::WriteAllText($jp, '{broken')
+$rj = Read-JsonFile $jp
+Write-AtomicText $jp '{"a":1}'; Write-AtomicText $jp '{"a":2}'
+Check '#75: unreadable settings kept as .corrupt; atomic write replaces, no BOM, no temp left' ($null -eq $rj -and [IO.File]::ReadAllText("$jp.corrupt") -eq '{broken' -and [IO.File]::ReadAllText($jp) -eq '{"a":2}' -and [IO.File]::ReadAllBytes($jp)[0] -eq 123 -and @(Get-ChildItem -LiteralPath $Root -Filter 'atomic.json.*.tmp').Count -eq 0) ([IO.File]::ReadAllText($jp))
 
 # ---- placement clearance (physical px; tray from 1541, anchor pill 1378-1533)
 $tray = [pscustomobject]@{ Left = 1541; Top = 1140; Right = 1920; Bottom = 1200 }
@@ -408,10 +421,8 @@ $script:ProductKey = 'claude'
 $si = Find-SignInCli
 $expected = Test-Path (Join-Path $env:USERPROFILE '.local\bin\claude.exe')
 Check 'sign in: Claude uses the official CLI "auth login"' ((-not $expected) -or ($si.args -eq 'auth login' -and $si.exe -like '*claude.exe')) "$($si.exe) $($si.args)"
-$oldApp = $env:LOCALAPPDATA; $oldRoam = $env:APPDATA; $env:LOCALAPPDATA = $app; $env:APPDATA = (Join-Path $Root 'no-appdata')
-try { $si2 = Find-SignInCli } finally { $env:LOCALAPPDATA = $oldApp; $env:APPDATA = $oldRoam }
-$onPath = $expected -or ($null -ne (Get-Command 'claude.exe', 'claude.cmd' -CommandType Application -ErrorAction SilentlyContinue))
-Check '#52: sign in falls back to the desktop app''s bundled Claude Code (newest)' ($onPath -or ($si2.args -eq 'auth login' -and $si2.exe -like '*2.1.10*claude.exe')) "$($si2.exe)"
+$si2 = Invoke-IsolatedProfile { Find-SignInCli }
+Check '#52: sign in falls back to the desktop app''s bundled Claude Code (newest)' (($si2.args -eq 'auth login' -and $si2.exe -like '*2.1.10*claude.exe')) "$($si2.exe)"
 
 # ---- watchdog (#23): a widget that died or hung comes back; never after Exit, Start with Windows off or uninstall
 $src = [IO.File]::ReadAllText($Widget)
