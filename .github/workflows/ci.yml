@@ -22,3 +22,9 @@ jobs:
       - name: Generated files, BOMs, parse check and both test suites
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1
+      - name: PSScriptAnalyzer gate
+        shell: powershell
+        run: |
+          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Scope CurrentUser -Force | Out-Null
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force -Repository PSGallery
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools\lint.ps1

@@ -55,6 +55,7 @@ $script:WeekSeconds     = 604800
 $script:SessionSeconds  = 18000
 $script:CacheTtlSeconds = 60
 $script:HttpCalls       = 0
+$script:Warnings       = New-Object System.Collections.ArrayList   # one line each on stderr as "warn: ..."; the widget logs them
 $script:CacheResult     = 'none'
 $script:CliResult       = 'none'
 $script:CliTimeoutMs    = 30000
@@ -440,6 +441,20 @@ function Read-Cache {
     } catch { return $null }
 }
 
+function Add-Warning {
+    # A failure that doesn't stop this run (the reading is still good) but should leave a trace in the widget log.
+    param([string]$Text)
+    [void]$script:Warnings.Add(($Text -replace '[\r\n]+', ' '))
+}
+
+function Write-FlushedText {
+    # Flushed to disk before the swap, so a power cut can't leave an empty file behind.
+    param([string]$Path, [string]$Text)
+    $bytes = $script:Utf8NoBom.GetBytes($Text)
+    $fs = New-Object IO.FileStream($Path, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try { $fs.Write($bytes, 0, $bytes.Length); $fs.Flush($true) } finally { $fs.Dispose() }
+}
+
 function Write-Cache {
     param([string]$Path, [string]$Salt, [string]$Tag, $Obs)
     $dir = Split-Path -Parent $Path
@@ -447,7 +462,7 @@ function Write-Cache {
     $doc = [ordered]@{ schema_version = 1; salt = $Salt; account_tag = $Tag; observation = $Obs }
     $json = ConvertTo-Json -InputObject $doc -Depth 12
     $tmp = "$Path.$PID.tmp"
-    [IO.File]::WriteAllText($tmp, $json, $script:Utf8NoBom)
+    Write-FlushedText $tmp $json
     for ($i = 0; $i -lt 4; $i++) {
         try {
             # [NullString]::Value, not $null: PowerShell would pass "" and File.Replace would always throw.
@@ -471,7 +486,7 @@ function Read-State {
             $j = (Read-SharedText $Path) | ConvertFrom-Json
             foreach ($k in @($s.Keys)) { $v = Get-Prop $j $k; if ($null -ne $v) { $s[$k] = $v } }
         }
-    } catch { }
+    } catch { Add-Warning "state file unreadable: $($_.Exception.Message)" }
     return $s
 }
 
@@ -481,9 +496,9 @@ function Write-State {
         $dir = Split-Path -Parent $Path
         if (-not (Test-Path -LiteralPath $dir)) { [void](New-Item -ItemType Directory -Path $dir -Force) }
         $tmp = "$Path.$PID.tmp"
-        [IO.File]::WriteAllText($tmp, (ConvertTo-Json -InputObject ([pscustomobject]$State) -Compress), $script:Utf8NoBom)
+        Write-FlushedText $tmp (ConvertTo-Json -InputObject ([pscustomobject]$State) -Compress)
         if (Test-Path -LiteralPath $Path) { [IO.File]::Replace($tmp, $Path, [NullString]::Value) } else { [IO.File]::Move($tmp, $Path) }
-    } catch { Remove-Item -LiteralPath "$Path.$PID.tmp" -Force -ErrorAction SilentlyContinue }
+    } catch { Add-Warning "state file not saved: $($_.Exception.Message)"; Remove-Item -LiteralPath "$Path.$PID.tmp" -Force -ErrorAction SilentlyContinue }
 }
 
 function Get-RetryAfterSeconds {
@@ -840,6 +855,7 @@ function Write-Result {
     $stdout = [Console]::OpenStandardOutput()
     $stdout.Write($bytes, 0, $bytes.Length)
     $stdout.Flush()
+    foreach ($w in $script:Warnings) { [Console]::Error.WriteLine("warn: $w") }
     if ($Diagnostics) {
         [Console]::Error.WriteLine("diag: http_calls=$($script:HttpCalls) cache=$($script:CacheResult) cli=$($script:CliResult) source=$($Output.source) status=$($Output.status) exit=$Code")
     }
@@ -894,7 +910,7 @@ try {
                 if (-not $NoCli -and ((Get-UnixNow) - [double]$state.cli_at) -ge $script:CliInfoSeconds) { [void](Get-CliObservation $state $true) }
                 if ([int]$state.reset_credits -ge 0) { $obs.reset_credits = [int]$state.reset_credits }
                 Write-State $statePath $state
-                try { Write-Cache $CachePath $salt $tag $obs } catch { }
+                try { Write-Cache $CachePath $salt $tag $obs } catch { Add-Warning "cache not saved: $($_.Exception.Message)" }
                 Write-Result (New-Output $obs 'live' $false $true $null) 0
             }
             $err = $r.error
@@ -916,7 +932,7 @@ try {
         Write-State $statePath $state
         if ($null -ne $c) {
             $ctag = $(if ($c.account) { Get-AccountTag $c.account 'chatgpt' $salt } else { $null })
-            if ($null -ne $ctag) { try { Write-Cache $CachePath $salt $ctag $c.obs } catch { } }
+            if ($null -ne $ctag) { try { Write-Cache $CachePath $salt $ctag $c.obs } catch { Add-Warning "cache not saved: $($_.Exception.Message)" } }
             $out = New-Output $c.obs 'cli' $false ($null -ne $ctag) $null
             $out.notice = 'Read through the Codex app''s own CLI, which renews its sign-in when needed.'
             Write-Result $out 0

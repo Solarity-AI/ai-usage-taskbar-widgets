@@ -603,7 +603,6 @@ function Get-AlertsDue {
         $crossed = @(@($Settings.alert_at) + 0 | Where-Object { $left -le [double]$_ } | Sort-Object -Unique)
         $new = @($crossed | Where-Object { -not (Test-AlertSent $Sent 'w' $rk ":$_") })
         if ($new.Count -gt 0) {
-            $lowest = ($crossed | Measure-Object -Minimum).Minimum
             $when = ('Resets {0} (in {1}).' -f (Format-LocalTime $reset $Now), (Get-ResetText $reset $Now))
             if ($left -le 0) { $title = "$Product`: weekly limit reached" }
             else { $title = ('{0}: {1} of the weekly limit used' -f $Product, (Format-UsedShare (100.0 - $left))) }
@@ -680,12 +679,26 @@ function Write-Log {
     } catch { }
 }
 
+function Write-FlushedText {
+    # UTF-8 without BOM, flushed to disk before the caller swaps the file in, so a power cut can't leave it empty.
+    param([string]$Path, [string]$Text)
+    $bytes = (New-Object Text.UTF8Encoding($false)).GetBytes($Text)
+    $fs = New-Object IO.FileStream($Path, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try { $fs.Write($bytes, 0, $bytes.Length); $fs.Flush($true) } finally { $fs.Dispose() }
+}
+
+function Save-CorruptCopy {
+    # Keep a file that failed to parse as <name>.corrupt (last one wins) before it gets rewritten with defaults.
+    param([string]$Path)
+    try { if (Test-Path -LiteralPath $Path -PathType Leaf) { Copy-Item -LiteralPath $Path -Destination "$Path.corrupt" -Force } } catch { Write-Log "could not keep $(Split-Path -Leaf $Path).corrupt: $($_.Exception.Message)" }
+}
+
 function Write-AtomicText {
     # Temp file + swap. [NullString]::Value is required: PowerShell passes $null to a .NET string parameter
     # as "", which makes File.Replace throw "The path is not of a legal form" whenever the target exists.
     param([string]$Path, [string]$Text)
     $tmp = "$Path.$PID.tmp"
-    [IO.File]::WriteAllText($tmp, $Text, (New-Object Text.UTF8Encoding($false)))
+    Write-FlushedText $tmp $Text
     for ($i = 0; $i -lt 4; $i++) {
         try {
             if (Test-Path -LiteralPath $Path) { [IO.File]::Replace($tmp, $Path, [NullString]::Value) } else { [IO.File]::Move($tmp, $Path) }
@@ -697,7 +710,7 @@ function Write-AtomicText {
 
 function Read-JsonFile {
     param([string]$Path)
-    try { if (Test-Path -LiteralPath $Path) { return ([IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8) | ConvertFrom-Json) } } catch { Write-Log "unreadable: $(Split-Path -Leaf $Path)" }
+    try { if (Test-Path -LiteralPath $Path) { return ([IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8) | ConvertFrom-Json) } } catch { Write-Log "unreadable: $(Split-Path -Leaf $Path), kept as .corrupt"; Save-CorruptCopy $Path }
     return $null
 }
 
@@ -736,7 +749,7 @@ function Read-History {
             }
             foreach ($row in @($j.c)) { $a = @($row); if ($a.Count -ge 2 -and $null -ne $a[0] -and $null -ne $a[1]) { [void]$h.c.Add(@{ t = [double]$a[0]; v = [double]$a[1] }) } }
         }
-    } catch { Write-Log 'history unreadable; starting a new one' }
+    } catch { Write-Log 'history unreadable; kept as .corrupt, starting a new one'; Save-CorruptCopy $Path }
     return $h
 }
 
@@ -1600,8 +1613,7 @@ function New-Pill {
                 $script:CardPinned = $true
                 if ($null -eq $script:Proc -and ([DateTime]::UtcNow - $script:LastClickRefresh).TotalSeconds -ge 20) {
                     # During a rate-limit or server-error backoff a click must not force another request (each 429 doubles the wait).
-                    $inBackoff = ($null -ne $script:Data -and $null -ne $script:Data.error -and [string]$script:Data.error.code -match '^http_(429|5\d\d)$')
-                    $script:LastClickRefresh = [DateTime]::UtcNow; $script:ManualRefresh = $true; Start-Refresh (-not $inBackoff)
+                    $script:LastClickRefresh = [DateTime]::UtcNow; $script:ManualRefresh = $true; Start-Refresh (-not (Test-InBackoff $script:Data))
                 }
                 Show-Card $pp $true
             }
@@ -1735,12 +1747,24 @@ function Write-CollectorLog {
     Write-Log $Line
 }
 
+function Test-InBackoff {
+    # A rate-limit or server-error reading: a click must not force another request then (each 429 doubles the wait).
+    param($Data)
+    return ($null -ne $Data -and $null -ne $Data.error -and [string]$Data.error.code -match '^http_(429|5\d\d)$')
+}
+
+function Test-CollectorBusy {
+    # Still running, or exited while a child it left still holds the output pipe open (time that out too).
+    param($Proc, $OutTask)
+    return (-not $Proc.HasExited -or -not $OutTask.IsCompleted)
+}
+
 function Complete-Refresh {
     $p = $script:Proc
     if ($null -eq $p) { return }
     $elapsed = ([DateTime]::UtcNow - $script:ProcStarted).TotalSeconds
     # A child left holding the output pipe keeps ProcOut open after the collector exits: time that out too.
-    if (-not $p.HasExited -or -not $script:ProcOut.IsCompleted) {
+    if (Test-CollectorBusy $p $script:ProcOut) {
         if ($elapsed -lt $script:CollectorTimeoutSeconds) { return }
         try { [void](Stop-ProcessTree $p.Id -SkipRoot:$p.HasExited) } catch { }
         try { $p.Dispose() } catch { }
@@ -1751,6 +1775,8 @@ function Complete-Refresh {
         return
     }
     $out = $script:ProcOut.Result
+    # The collector reports failures that didn't stop the reading (cache or state not saved) as "warn: ..." on stderr.
+    try { if ($null -ne $script:ProcErr -and $script:ProcErr.Wait(500)) { foreach ($wl in ($script:ProcErr.Result -split "`r?`n")) { if ($wl -match '^warn: ') { Write-Log ('collector ' + $wl.Trim()) } } } } catch { Write-Log "collector stderr unreadable: $($_.Exception.Message)" }
     $code = $p.ExitCode
     $p.Dispose()
     $script:Proc = $null; $script:Refreshing = $false; $script:ManualRefresh = $false
@@ -2168,7 +2194,6 @@ function Update-View {
         # Card header and hero
         $ui.CardHero.Text = $pct
         $ui.CardHero.Foreground = $T[$level + 'B']
-        $exhausted = ($null -ne $left -and $left -le 0)
         $ui.CardHeroLabel.Text = $(if ($bind.kind -eq 'session') { ('used in this {0}-hour session' -f [Math]::Round([double]$bind.window.window_seconds / 3600.0)) }
                                    elseif ($null -eq $left) { 'weekly data unavailable' }
                                    elseif ($tag -eq 'claude') { "used this week $dot all models" } else { 'used this week' })
@@ -2207,7 +2232,7 @@ function Update-View {
         if ($d.source -eq 'session_log' -and $d.account_verified -ne $true) { [void]$status.Add('From a local session log whose account could not be confirmed.') }
         if (@($d.reset_passed).Count -gt 0) { [void]$status.Add('A limit window has reset since this reading; waiting for a new one.') }
         if ($d.error -and $d.error.message) { [void]$status.Add([string]$d.error.message) }
-        if ($needsSignIn) { [void]$status.Add(('To fix it: right-click the pill ' + [char]0x203A + ' Sign in again.')) }
+        if ($needsSignIn -and [string]$d.error.message -notmatch 'Sign in again') { [void]$status.Add(('To fix it: right-click the pill ' + [char]0x203A + ' Sign in again.')) }
         if ($script:CollectorFailure) { [void]$status.Add($script:CollectorFailure) }
         # Placement notes only when the pill could not go where it belongs (a small nudge left is not news).
         foreach ($n in @($script:Pills | Where-Object { $_.Note -and $_.Mode -ne 'manual' } | ForEach-Object { $_.Note } | Select-Object -Unique)) { [void]$status.Add($n) }

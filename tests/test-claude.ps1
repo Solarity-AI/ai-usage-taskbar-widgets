@@ -47,6 +47,10 @@ Check 'scoped Opus kept; null Sonnet skipped; weekly not overwritten' (@($r.json
 Check 'single scoped item serialized as array' ($r.raw.Contains('"scoped":[{')) ''
 Check 'plan from local sign-in, extra usage %' ($r.json.plan -eq 'team' -and $r.json.extra_usage.enabled -eq $true -and $r.json.extra_usage.utilization -eq 25) ($r.json.extra_usage | ConvertTo-Json -Compress)
 Check 'exit 0 live, verified' ($r.code -eq 0 -and $r.json.source -eq 'live' -and $r.json.account_verified -eq $true) $r.diag
+# #74: a cache that can't be saved still returns the reading and leaves a "warn:" line for the widget log.
+$keepCache = $cache; $cache = Join-Path $Root 'cache-dir\usage-cache.json'; [void](New-Item -ItemType Directory -Path $cache -Force)
+try { $r = Run @('-TestResponseFile', $full, '-Force') } finally { $cache = $keepCache }
+Check '#74: cache write failure -> reading kept, warn: line on stderr' ($r.code -eq 0 -and $r.json.source -eq 'live' -and $r.diag -match '(?m)^warn: cache not saved: ') $r.diag
 
 $r = Run @('-TestResponseFile', (Resp 'no7' ([ordered]@{ five_hour = [ordered]@{ utilization = 40; resets_at = '2026-11-13T01:00:00+00:00' }; seven_day = $null })), '-Force')
 Check 'missing weekly -> null (never the 5-hour value)' ($null -eq $r.json.weekly -and $r.json.session.used -eq 40 -and $r.raw.Contains('"scoped":[]')) $r.raw
@@ -95,8 +99,14 @@ $v9 = Join-Path $cc (Join-Path '2.1.9' 'aaa'); $v10 = Join-Path $cc (Join-Path '
 [IO.File]::WriteAllText((Join-Path $v9 'claude.exe'), 'not a program', $utf8)
 Copy-Item (Join-Path $env:SystemRoot 'System32\whoami.exe') (Join-Path $v10 'claude.exe')
 Remove-Item (Join-Path $Root 'cache\collector-state.json') -Force
-$oldApp = $env:LOCALAPPDATA; $oldRoam = $env:APPDATA; $env:LOCALAPPDATA = $app; $env:APPDATA = (Join-Path $Root 'no-appdata')
-try { $x = Run @('-Force') $cfg '' } finally { $env:LOCALAPPDATA = $oldApp; $env:APPDATA = $oldRoam }
+# #70: isolated profile, so a Claude Code installed on this PC (%USERPROFILE%\.local\bin, PATH) can't leak into the test.
+function Invoke-IsolatedProfile([scriptblock]$Body) {
+    $saved = @{}; foreach ($k in 'LOCALAPPDATA', 'APPDATA', 'USERPROFILE', 'HOME', 'PATH') { $saved[$k] = [Environment]::GetEnvironmentVariable($k) }
+    $env:LOCALAPPDATA = $app; $env:APPDATA = (Join-Path $Root 'no-appdata'); $env:USERPROFILE = (Join-Path $Root 'profile'); $env:HOME = $env:USERPROFILE
+    $env:PATH = (Join-Path $env:SystemRoot 'System32') + ';' + $env:SystemRoot
+    try { & $Body } finally { foreach ($k in @($saved.Keys)) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) } }
+}
+$x = Invoke-IsolatedProfile { Run @('-Force') $cfg '' }
 Check '#52: bundled desktop-app CLI found, newest version' ($x.diag -match 'renew=exit_' -and $x.diag -notmatch 'renew=(no_cli|start_failed)') $x.diag
 Set-Creds $future
 Remove-Item (Join-Path $Root 'cache\collector-state.json') -Force
@@ -120,6 +130,7 @@ Check 'account change -> cache not used, unavailable' ($ac.diag -match 'cache=in
 Remove-Item (Join-Path $cfg '.credentials.json')
 $m = Run @('-Force')
 Check 'missing sign-in -> auth_missing, no HTTP' ($m.json.error.code -eq 'auth_missing' -and $m.diag -match 'http_calls=0') $m.json.error.message
+Check '#71: sign-in errors point to Sign in again, terminal only as fallback' ($m.json.error.message.Contains('choose Sign in again (or run "claude" in a terminal)')) $m.json.error.message
 $ch = Run @('-Force') (Join-Path $Root 'nope')
 Check 'missing CLAUDE_CONFIG_DIR honored (no fallback)' ($ch.json.error.code -eq 'config_missing') $ch.json.error.message
 $cb = Run @('-Force') 'C:\bad|dir?'
@@ -135,7 +146,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile($Widget, [ref]$
 $want = 'ConvertTo-UtcTime', 'ConvertTo-Unix', 'Get-Left', 'Format-Percent', 'Get-LevelKey', 'Format-Span', 'Get-ResetText', 'Format-LocalTime', 'Format-Rate',
     'Get-PaceInfo', 'Get-PaceView', 'Write-AtomicText', 'Get-PillFitHeight', 'New-History', 'Read-History', 'Add-HistorySample', 'ConvertTo-HistoryJson', 'Get-ClearX', 'Write-Log',
     'Format-Number', 'Format-Share', 'Test-Snoozed', 'Get-SnoozeUntil', 'Format-SnoozeEnd', 'Find-SignInCli', 'Find-BundledClaudeCli', 'Get-SameWindowSamples', 'Get-DailyBudget', 'Get-ChartGeometry', 'Get-Trend', 'Get-AlertsDue', 'ConvertTo-Settings', 'Add-WindowSample', 'Get-SpendValue', 'Format-DayTime', 'Format-ResetLine', 'Format-UsedShare', 'Get-PaceSummary', 'Get-WindowLabel', 'Invoke-Alerts', 'Get-BindingLimit',
-    'Read-JsonFile', 'Read-AlertsSent', 'Test-AlertSent', 'Get-ClampedPosition'
+    'Read-JsonFile', 'Write-FlushedText', 'Save-CorruptCopy', 'Test-InBackoff', 'Test-CollectorBusy', 'Read-AlertsSent', 'Test-AlertSent', 'Get-ClampedPosition'
 $script:AppDir = $Root; $script:LogPath = Join-Path $Root 'widget.log'; $script:HistoryDays = 15; $script:AnchorGapPx = 8; $script:Inv = [Globalization.CultureInfo]::InvariantCulture
 foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $n.Name }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
 foreach ($a2 in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -in '$script:PillXaml', '$script:CardXaml', '$script:Thresholds' }, $true)) { . ([scriptblock]::Create($a2.Extent.Text)) }
@@ -223,8 +234,9 @@ $q5b = Get-DailyBudget ([pscustomobject]@{ used = 60; window_seconds = 604800; r
 Check 'QA-05: a reading from days before midnight does not count as today''s use' ($null -eq $q5b -or $q5b.used_today -lt 10) "$($q5b.used_today)"
 Check 'QA-07: 99.6% used reads "99%" (matches "<1%" left), 100 reads "100%"' ((Format-UsedShare 99.6) -eq '99%' -and (Format-UsedShare 100) -eq '100%') (Format-UsedShare 99.6)
 $wsrc = [IO.File]::ReadAllText($Widget); $usrc = [IO.File]::ReadAllText((Join-Path $Dir 'uninstall.ps1'))
-Check 'QA-03: uninstall, collector and widget never hold the install folder as working directory' ($wsrc -match "-WorkingDirectory \`$env:USERPROFILE -ArgumentList @\('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File'" -and $wsrc -match '\$psi\.WorkingDirectory = \$env:USERPROFILE' -and $wsrc -match '\[Environment\]::CurrentDirectory = \$env:USERPROFILE' -and $usrc -match '\[Environment\]::CurrentDirectory = \$env:USERPROFILE') ''
-Check 'QA-06: a click during a 429/5xx backoff does not force a request' ($wsrc -match 'Start-Refresh \(-not \$inBackoff\)') ''
+Check 'QA-03 (source check: process start options): uninstall, collector and widget never hold the install folder as working directory' ($wsrc -match "-WorkingDirectory \`$env:USERPROFILE -ArgumentList @\('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File'" -and $wsrc -match '\$psi\.WorkingDirectory = \$env:USERPROFILE' -and $wsrc -match '\[Environment\]::CurrentDirectory = \$env:USERPROFILE' -and $usrc -match '\[Environment\]::CurrentDirectory = \$env:USERPROFILE') ''
+$bo = { param($c) [pscustomobject]@{ error = [pscustomobject]@{ code = $c } } }
+Check 'QA-06: a click during a 429/5xx backoff does not force a request (#73: behavior)' ((Test-InBackoff (& $bo 'http_429')) -and (Test-InBackoff (& $bo 'http_503')) -and -not (Test-InBackoff (& $bo 'http_401')) -and -not (Test-InBackoff (& $bo 'auth_expired')) -and -not (Test-InBackoff $null) -and -not (Test-InBackoff ([pscustomobject]@{ error = $null })) -and $wsrc.Contains('Start-Refresh (-not (Test-InBackoff $script:Data))')) ''
 # Pill/hero show the limit that runs out first
 $bn = [DateTime]::SpecifyKind([DateTime]'2026-11-14T12:00:00', 'Utc')
 $bw = { param($u) [pscustomobject]@{ used = $u; window_seconds = 604800; resets_at = '2026-11-18T12:00:00Z' } }
@@ -246,6 +258,12 @@ $h2 = Read-History $hp
 Check 'history: JSON round trip keeps rows, prunes >15 days' ($h2.w.Count -eq 2 -and $h2.w[0].u -eq 60 -and $h2.w[0].r -eq $rU) ([IO.File]::ReadAllText($hp))
 [IO.File]::WriteAllText($hp, 'not json')
 Check 'history: corrupt file -> empty history, no crash' ((Read-History $hp).w.Count -eq 0) ''
+Check '#75: corrupt history kept as .corrupt' ((Test-Path -LiteralPath "$hp.corrupt") -and [IO.File]::ReadAllText("$hp.corrupt") -eq 'not json') ''
+$jp = Join-Path $Root 'atomic.json'
+[IO.File]::WriteAllText($jp, '{broken')
+$rj = Read-JsonFile $jp
+Write-AtomicText $jp '{"a":1}'; Write-AtomicText $jp '{"a":2}'
+Check '#75: unreadable settings kept as .corrupt; atomic write replaces, no BOM, no temp left' ($null -eq $rj -and [IO.File]::ReadAllText("$jp.corrupt") -eq '{broken' -and [IO.File]::ReadAllText($jp) -eq '{"a":2}' -and [IO.File]::ReadAllBytes($jp)[0] -eq 123 -and @(Get-ChildItem -LiteralPath $Root -Filter 'atomic.json.*.tmp').Count -eq 0) ([IO.File]::ReadAllText($jp))
 
 # ---- placement clearance (physical px; tray from 1541, anchor pill 1378-1533)
 $tray = [pscustomobject]@{ Left = 1541; Top = 1140; Right = 1920; Bottom = 1200 }
@@ -297,7 +315,7 @@ Check 'settings: pre-v2 file moves to the countdown pill; a v2 choice of budget 
 $bad = $null; $bs = $null
 try { $bs = ConvertTo-Settings ('{"placement":"manual","x":"abc","y":5,"poll":"abc","v":"abc","pill":"budget","alert_at":["abc",25,"10"]}' | ConvertFrom-Json) 60 $nowP } catch { $bad = $_.Exception.Message }
 Check 'QA-01: text where numbers belong -> defaults, no exception' ($null -eq $bad -and $bs.placement -eq 'auto' -and $bs.poll -eq 60 -and $bs.pill -eq 'countdown' -and (@($bs.alert_at) -join ',') -eq '25,10') "$bad"
-$bad2 = $null; try { $bs2 = ConvertTo-Settings ('{"snooze_until":1e30,"x":1e300,"y":1,"placement":"manual"}' | ConvertFrom-Json) 60 $nowP; $f2 = Format-SnoozeEnd $bs2.snooze_until $nowP } catch { $bad2 = $_.Exception.Message }
+$bad2 = $null; try { $bs2 = ConvertTo-Settings ('{"snooze_until":1e30,"x":1e300,"y":1,"placement":"manual"}' | ConvertFrom-Json) 60 $nowP; [void](Format-SnoozeEnd $bs2.snooze_until $nowP) } catch { $bad2 = $_.Exception.Message }
 Check 'QA-01: far-future snooze / huge position -> ignored, no exception' ($null -eq $bad2 -and $bs2.snooze_until -eq 0 -and $bs2.placement -eq 'auto') "$bad2"
 Check 'QA-01: JSON that is not an object (array root) -> defaults' ((ConvertTo-Settings ('[1,2]' | ConvertFrom-Json) 60 $nowP).poll -eq 60) ''
 # Invoke-Alerts: an alert Windows refused is not marked as shown; it is retried after 15 minutes
@@ -408,10 +426,8 @@ $script:ProductKey = 'claude'
 $si = Find-SignInCli
 $expected = Test-Path (Join-Path $env:USERPROFILE '.local\bin\claude.exe')
 Check 'sign in: Claude uses the official CLI "auth login"' ((-not $expected) -or ($si.args -eq 'auth login' -and $si.exe -like '*claude.exe')) "$($si.exe) $($si.args)"
-$oldApp = $env:LOCALAPPDATA; $oldRoam = $env:APPDATA; $env:LOCALAPPDATA = $app; $env:APPDATA = (Join-Path $Root 'no-appdata')
-try { $si2 = Find-SignInCli } finally { $env:LOCALAPPDATA = $oldApp; $env:APPDATA = $oldRoam }
-$onPath = $expected -or ($null -ne (Get-Command 'claude.exe', 'claude.cmd' -CommandType Application -ErrorAction SilentlyContinue))
-Check '#52: sign in falls back to the desktop app''s bundled Claude Code (newest)' ($onPath -or ($si2.args -eq 'auth login' -and $si2.exe -like '*2.1.10*claude.exe')) "$($si2.exe)"
+$si2 = Invoke-IsolatedProfile { Find-SignInCli }
+Check '#52: sign in falls back to the desktop app''s bundled Claude Code (newest)' (($si2.args -eq 'auth login' -and $si2.exe -like '*2.1.10*claude.exe')) "$($si2.exe)"
 
 # ---- watchdog (#23): a widget that died or hung comes back; never after Exit, Start with Windows off or uninstall
 $src = [IO.File]::ReadAllText($Widget)
@@ -428,8 +444,10 @@ Check 'watchdog: stale heartbeat once after sleep, responding -> wait (no restar
 Check 'watchdog: stale twice in a row -> replace' ((Wd @{ HeartbeatAge = 600; WasStale = $true }) -eq 'replace') ''
 Check 'watchdog: stale and not responding -> replace' ((Wd @{ HeartbeatAge = 600; Responding = $false }) -eq 'replace') ''
 Check 'watchdog: not responding but heartbeat fresh -> nothing' ((Wd @{ Responding = $false }) -eq 'none') ''
-Check 'widget: Exit leaves the marker, start clears it, UI writes a heartbeat' ($src -match '(?s)function Stop-Widget \{.*?ExitMarkerPath.*?\n\}' -and $src -match 'Remove-Item -LiteralPath \$script:ExitMarkerPath' -and $src -match '(?s)RenderTimer\.add_Tick\(\{.*?Write-Heartbeat') ''
-Check 'widget: collector timeout also covers an exited collector whose output pipe is still held' ($src -match 'if \(-not \$p\.HasExited -or -not \$script:ProcOut\.IsCompleted\)') ''
+Check 'widget (source check: WPF wiring): Exit leaves the marker, start clears it, UI writes a heartbeat' ($src -match '(?s)function Stop-Widget \{.*?ExitMarkerPath.*?\n\}' -and $src -match 'Remove-Item -LiteralPath \$script:ExitMarkerPath' -and $src -match '(?s)RenderTimer\.add_Tick\(\{.*?Write-Heartbeat') ''
+$pr = { param($exited, $done) @([pscustomobject]@{ HasExited = $exited }, [pscustomobject]@{ IsCompleted = $done }) }
+$b1 = & $pr $false $false; $b2 = & $pr $true $false; $b3 = & $pr $true $true
+Check 'widget: collector timeout also covers an exited collector whose output pipe is still held (#73: behavior)' ((Test-CollectorBusy $b1[0] $b1[1]) -and (Test-CollectorBusy $b2[0] $b2[1]) -and -not (Test-CollectorBusy $b3[0] $b3[1]) -and $src.Contains('if (Test-CollectorBusy $p $script:ProcOut)')) ''
 
 # ---- collector timeout stops the whole process tree (#23), including children left by an exited collector
 foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Stop-ProcessTree' }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
@@ -447,7 +465,7 @@ $alive1 = @(@($t1.root.Id) + $t1.kids | Where-Object { Get-Process -Id $_ -Error
 Check 'collector timeout: parent and child both stopped' ($t1.kids.Count -ge 1 -and $n1 -ge 2 -and $alive1.Count -eq 0) "kids=$($t1.kids -join ',') stopped=$n1 alive=$($alive1 -join ',')"
 $t2 = Start-Tree 2
 [void]$t2.root.WaitForExit(15000)
-$n2 = Stop-ProcessTree $t2.root.Id -SkipRoot; Start-Sleep -Milliseconds 700
+[void](Stop-ProcessTree $t2.root.Id -SkipRoot); Start-Sleep -Milliseconds 700
 $alive2 = @($t2.kids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
 Check 'collector timeout: child left by an exited collector stopped' ($t2.kids.Count -ge 1 -and $t2.root.HasExited -and $alive2.Count -eq 0) "kids=$($t2.kids -join ',') alive=$($alive2 -join ',')"
 foreach ($id in @($t1.kids + $t2.kids)) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
@@ -469,9 +487,9 @@ $colSrc = [IO.File]::ReadAllText($Collector)
 $cxSrc = [IO.File]::ReadAllText((Join-Path (Split-Path $Dir) 'codex-usage-widget\codex-usage.ps1'))
 $insSrc = [IO.File]::ReadAllText((Join-Path $Dir 'install.ps1')); $unSrc = [IO.File]::ReadAllText((Join-Path $Dir 'uninstall.ps1')); $wdSrc = [IO.File]::ReadAllText((Join-Path $Dir 'watchdog.ps1'))
 Check '#35: collectors end the whole CLI tree on timeout (taskkill /T)' ($colSrc -match 'Invoke-TreeKill \$p' -and $colSrc -match '/T /F /PID' -and $cxSrc -match 'WaitForExit\(3000\)\) \{ Invoke-TreeKill \$p' -and $cxSrc -match '/T /F /PID') ''
-Check '#35: widget tick error stops the collector tree (Reset-Refresh)' ($src -match '(?s)function Reset-Refresh \{.*?Stop-ProcessTree' -and $src -match 'catch \{[^}]*Reset-Refresh') ''
+Check '#35 (source check: WPF timer wiring): widget tick error stops the collector tree (Reset-Refresh)' ($src -match '(?s)function Reset-Refresh \{.*?Stop-ProcessTree' -and $src -match 'catch \{[^}]*Reset-Refresh') ''
 Check '#35: watchdog replace ends each widget tree' ($wdSrc -match '/T /F /PID') ''
-Check '#37: lost mouse capture ends a drag (LostMouseCapture -> Complete-Drag)' ($src -match '(?s)add_LostMouseCapture\(\{.*?Complete-Drag') ''
+Check '#37 (source check: WPF event wiring): lost mouse capture ends a drag (LostMouseCapture -> Complete-Drag)' ($src -match '(?s)add_LostMouseCapture\(\{.*?Complete-Drag') ''
 Check '#30: reinstall keeps Start with Windows off' ($insSrc -match '\$HadShortcut\s*=\s*Test-Path' -and $insSrc -match 'if \(\$WasInstalled -and -not \$HadShortcut\)') ''
 Check '#31: uninstaller task may start on battery' ($unSrc -match 'Register-ScheduledTask[^\n]*-Settings \$settings' -and $unSrc -match 'AllowStartIfOnBatteries') ''
 # #38 regression: a failed process query never starts a second widget

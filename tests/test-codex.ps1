@@ -66,7 +66,7 @@ Check 'cli: no CLI found -> last reading shown stale' ($m.source -eq 'cache' -an
 
 $tok = $null; $err = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $Dir 'codex-usage-widget.ps1'), [ref]$tok, [ref]$err)
-foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -in 'Write-AtomicText', 'Get-PillFitHeight' }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
+foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -in 'Write-AtomicText', 'Write-FlushedText', 'Get-PillFitHeight' }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
 foreach ($x in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -in '$script:PillXaml', '$script:CardXaml', '$script:MenuXaml' }, $true)) { . ([scriptblock]::Create($x.Extent.Text)) }
 $sf = Join-Path $Root 'settings.json'
 Write-AtomicText $sf '{"x":1}'; Write-AtomicText $sf '{"x":2}'; Write-AtomicText $sf '{"x":3}'
