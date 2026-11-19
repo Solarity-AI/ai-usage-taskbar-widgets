@@ -54,6 +54,7 @@ $script:WeekSeconds     = 604800
 $script:SessionSeconds  = 18000
 $script:CacheTtlSeconds = 60
 $script:HttpCalls       = 0
+$script:Warnings       = New-Object System.Collections.ArrayList   # one line each on stderr as "warn: ..."; the widget logs them
 $script:CacheResult     = 'none'
 $script:RenewResult     = 'none'
 $script:CliOutput       = $null
@@ -339,6 +340,12 @@ function Read-Cache {
     } catch { return $null }
 }
 
+function Add-Warning {
+    # A failure that doesn't stop this run (the reading is still good) but should leave a trace in the widget log.
+    param([string]$Text)
+    [void]$script:Warnings.Add(($Text -replace '[\r\n]+', ' '))
+}
+
 function Write-FlushedText {
     # Flushed to disk before the swap, so a power cut can't leave an empty file behind.
     param([string]$Path, [string]$Text)
@@ -383,7 +390,7 @@ function Read-State {
             $j = (Read-SharedText $Path) | ConvertFrom-Json
             foreach ($k in @($s.Keys)) { $v = Get-Prop $j $k; if ($null -ne $v) { $s[$k] = $v } }
         }
-    } catch { }
+    } catch { Add-Warning "state file unreadable: $($_.Exception.Message)" }
     return $s
 }
 
@@ -393,7 +400,7 @@ function Write-State {
         $dir = Split-Path -Parent $Path
         if (-not (Test-Path -LiteralPath $dir)) { [void](New-Item -ItemType Directory -Path $dir -Force) }
         Write-AtomicText $Path (ConvertTo-Json -InputObject ([pscustomobject]$State) -Compress)
-    } catch { }
+    } catch { Add-Warning "state file not saved: $($_.Exception.Message)" }
 }
 
 function Get-RetryAfterSeconds {
@@ -701,6 +708,7 @@ function Write-Result {
     $stdout = [Console]::OpenStandardOutput()
     $stdout.Write($bytes, 0, $bytes.Length)
     $stdout.Flush()
+    foreach ($w in $script:Warnings) { [Console]::Error.WriteLine("warn: $w") }
     if ($Diagnostics) { [Console]::Error.WriteLine("diag: http_calls=$($script:HttpCalls) cache=$($script:CacheResult) renew=$($script:RenewResult) cli=$($script:CliRead) source=$($Output.source) status=$($Output.status) exit=$Code") }
     exit $Code
 }
@@ -762,7 +770,7 @@ try {
                 if ((ConvertTo-Json -InputObject ([pscustomobject]$state) -Compress) -ne $stateBefore) { Write-State $statePath $state }
                 $obs = ConvertFrom-LiveUsage $r.json
                 $obs.plan = $auth.plan
-                if ($tag) { try { Write-Cache $CachePath $salt $tag $obs } catch { } }
+                if ($tag) { try { Write-Cache $CachePath $salt $tag $obs } catch { Add-Warning "cache not saved: $($_.Exception.Message)" } }
                 Write-Result (New-Output $obs 'live' $false ($null -ne $tag) $null) 0
             }
             $err = $r.error
@@ -808,7 +816,7 @@ try {
             if ($null -ne $cliObs) {
                 $cliObs.plan = $auth.plan
                 if ($cacheCompatible) { $cliObs.extra_usage = $cache.observation.extra_usage }   # /usage text has no extra-usage figures
-                if ($tag) { try { Write-Cache $CachePath $salt $tag $cliObs } catch { } }
+                if ($tag) { try { Write-Cache $CachePath $salt $tag $cliObs } catch { Add-Warning "cache not saved: $($_.Exception.Message)" } }
             }
         }
         if ($null -ne $cliObs) {

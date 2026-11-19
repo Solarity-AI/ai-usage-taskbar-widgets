@@ -1776,6 +1776,8 @@ function Complete-Refresh {
         return
     }
     $out = $script:ProcOut.Result
+    # The collector reports failures that didn't stop the reading (cache or state not saved) as "warn: ..." on stderr.
+    try { if ($null -ne $script:ProcErr -and $script:ProcErr.Wait(500)) { foreach ($wl in ($script:ProcErr.Result -split "`r?`n")) { if ($wl -match '^warn: ') { Write-Log ('collector ' + $wl.Trim()) } } } } catch { Write-Log "collector stderr unreadable: $($_.Exception.Message)" }
     $code = $p.ExitCode
     $p.Dispose()
     $script:Proc = $null; $script:Refreshing = $false; $script:ManualRefresh = $false

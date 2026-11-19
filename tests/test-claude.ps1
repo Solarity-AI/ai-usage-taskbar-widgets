@@ -47,6 +47,10 @@ Check 'scoped Opus kept; null Sonnet skipped; weekly not overwritten' (@($r.json
 Check 'single scoped item serialized as array' ($r.raw.Contains('"scoped":[{')) ''
 Check 'plan from local sign-in, extra usage %' ($r.json.plan -eq 'team' -and $r.json.extra_usage.enabled -eq $true -and $r.json.extra_usage.utilization -eq 25) ($r.json.extra_usage | ConvertTo-Json -Compress)
 Check 'exit 0 live, verified' ($r.code -eq 0 -and $r.json.source -eq 'live' -and $r.json.account_verified -eq $true) $r.diag
+# #74: a cache that can't be saved still returns the reading and leaves a "warn:" line for the widget log.
+$keepCache = $cache; $cache = Join-Path $Root 'cache-dir\usage-cache.json'; [void](New-Item -ItemType Directory -Path $cache -Force)
+try { $r = Run @('-TestResponseFile', $full, '-Force') } finally { $cache = $keepCache }
+Check '#74: cache write failure -> reading kept, warn: line on stderr' ($r.code -eq 0 -and $r.json.source -eq 'live' -and $r.diag -match '(?m)^warn: cache not saved: ') $r.diag
 
 $r = Run @('-TestResponseFile', (Resp 'no7' ([ordered]@{ five_hour = [ordered]@{ utilization = 40; resets_at = '2026-11-13T01:00:00+00:00' }; seven_day = $null })), '-Force')
 Check 'missing weekly -> null (never the 5-hour value)' ($null -eq $r.json.weekly -and $r.json.session.used -eq 40 -and $r.raw.Contains('"scoped":[]')) $r.raw
