@@ -315,7 +315,7 @@ Check 'settings: pre-v2 file moves to the countdown pill; a v2 choice of budget 
 $bad = $null; $bs = $null
 try { $bs = ConvertTo-Settings ('{"placement":"manual","x":"abc","y":5,"poll":"abc","v":"abc","pill":"budget","alert_at":["abc",25,"10"]}' | ConvertFrom-Json) 60 $nowP } catch { $bad = $_.Exception.Message }
 Check 'QA-01: text where numbers belong -> defaults, no exception' ($null -eq $bad -and $bs.placement -eq 'auto' -and $bs.poll -eq 60 -and $bs.pill -eq 'countdown' -and (@($bs.alert_at) -join ',') -eq '25,10') "$bad"
-$bad2 = $null; try { $bs2 = ConvertTo-Settings ('{"snooze_until":1e30,"x":1e300,"y":1,"placement":"manual"}' | ConvertFrom-Json) 60 $nowP; $f2 = Format-SnoozeEnd $bs2.snooze_until $nowP } catch { $bad2 = $_.Exception.Message }
+$bad2 = $null; try { $bs2 = ConvertTo-Settings ('{"snooze_until":1e30,"x":1e300,"y":1,"placement":"manual"}' | ConvertFrom-Json) 60 $nowP; [void](Format-SnoozeEnd $bs2.snooze_until $nowP) } catch { $bad2 = $_.Exception.Message }
 Check 'QA-01: far-future snooze / huge position -> ignored, no exception' ($null -eq $bad2 -and $bs2.snooze_until -eq 0 -and $bs2.placement -eq 'auto') "$bad2"
 Check 'QA-01: JSON that is not an object (array root) -> defaults' ((ConvertTo-Settings ('[1,2]' | ConvertFrom-Json) 60 $nowP).poll -eq 60) ''
 # Invoke-Alerts: an alert Windows refused is not marked as shown; it is retried after 15 minutes
@@ -465,7 +465,7 @@ $alive1 = @(@($t1.root.Id) + $t1.kids | Where-Object { Get-Process -Id $_ -Error
 Check 'collector timeout: parent and child both stopped' ($t1.kids.Count -ge 1 -and $n1 -ge 2 -and $alive1.Count -eq 0) "kids=$($t1.kids -join ',') stopped=$n1 alive=$($alive1 -join ',')"
 $t2 = Start-Tree 2
 [void]$t2.root.WaitForExit(15000)
-$n2 = Stop-ProcessTree $t2.root.Id -SkipRoot; Start-Sleep -Milliseconds 700
+[void](Stop-ProcessTree $t2.root.Id -SkipRoot); Start-Sleep -Milliseconds 700
 $alive2 = @($t2.kids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
 Check 'collector timeout: child left by an exited collector stopped' ($t2.kids.Count -ge 1 -and $t2.root.HasExited -and $alive2.Count -eq 0) "kids=$($t2.kids -join ',') alive=$($alive2 -join ',')"
 foreach ($id in @($t1.kids + $t2.kids)) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }

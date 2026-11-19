@@ -603,7 +603,6 @@ function Get-AlertsDue {
         $crossed = @(@($Settings.alert_at) + 0 | Where-Object { $left -le [double]$_ } | Sort-Object -Unique)
         $new = @($crossed | Where-Object { -not (Test-AlertSent $Sent 'w' $rk ":$_") })
         if ($new.Count -gt 0) {
-            $lowest = ($crossed | Measure-Object -Minimum).Minimum
             $when = ('Resets {0} (in {1}).' -f (Format-LocalTime $reset $Now), (Get-ResetText $reset $Now))
             if ($left -le 0) { $title = "$Product`: weekly limit reached" }
             else { $title = ('{0}: {1} of the weekly limit used' -f $Product, (Format-UsedShare (100.0 - $left))) }
@@ -2195,7 +2194,6 @@ function Update-View {
         # Card header and hero
         $ui.CardHero.Text = $pct
         $ui.CardHero.Foreground = $T[$level + 'B']
-        $exhausted = ($null -ne $left -and $left -le 0)
         $ui.CardHeroLabel.Text = $(if ($bind.kind -eq 'session') { ('used in this {0}-hour session' -f [Math]::Round([double]$bind.window.window_seconds / 3600.0)) }
                                    elseif ($null -eq $left) { 'weekly data unavailable' }
                                    elseif ($tag -eq 'claude') { "used this week $dot all models" } else { 'used this week' })
