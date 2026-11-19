@@ -2,6 +2,10 @@
 
 Each release is listed here, newest first. The version is `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1` and `appVersion` in `macos/Sources/Core.swift`; tagging `v<version>` publishes it as a GitHub release with downloadable zips.
 
+## 1.5.2 (2026-11-18)
+
+**Fixed:** clicking the taskbar no longer hides the Windows pills for up to 1.5 s. Windows raises the taskbar a moment after the click, so the pills now check again for 600 ms and move back on top only when a taskbar covers them; menus and pop-ups over a pill keep their place ([#82](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/82)).
+
 ## 1.5.1 (2026-11-18)
 
 **Fixed:** sign-in errors told you to run `claude` in a terminal, which people who use only the desktop app can't do. They now say to right-click the widget and choose *Sign in again*, with the terminal as the fallback ([#71](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/71)).
