@@ -94,10 +94,24 @@ try {
     else { Say '  OK   No watchdog task' }
 } catch { Say "  NOTE Could not remove the task $WatchdogTask : $($_.Exception.Message)" }
 
-# 1) stop only this widget
+function Stop-ProcessTree {
+    # Stops a process and every descendant: a refresh in flight has a collector child (and maybe the official CLI)
+    # that would otherwise keep running and write its state file back into the folder being removed.
+    param([int]$RootId)
+    $all = @(Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId -ErrorAction SilentlyContinue)
+    $ids = New-Object System.Collections.ArrayList
+    [void]$ids.Add($RootId)
+    for ($i = 0; $i -lt $ids.Count; $i++) {
+        foreach ($c in $all) { if ($c.ParentProcessId -eq $ids[$i] -and $c.ProcessId -ne $PID -and -not $ids.Contains([int]$c.ProcessId)) { [void]$ids.Add([int]$c.ProcessId) } }
+    }
+    for ($i = $ids.Count - 1; $i -ge 1; $i--) { try { Stop-Process -Id $ids[$i] -Force -ErrorAction Stop } catch { } }
+    Stop-Process -Id $RootId -Force -ErrorAction Stop   # the caller reports whether the widget itself stopped
+}
+
+# 1) stop only this widget (and the collector it may be running)
 $procs = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine -match '(?i)[\\/"\s]claude-usage-widget\.ps1' })
-foreach ($p in $procs) { try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop; Say ("  OK   Stopped the widget (PID {0})" -f $p.ProcessId) } catch { Say ("  NOTE Could not stop PID {0}" -f $p.ProcessId) } }
+foreach ($p in $procs) { try { Stop-ProcessTree ([int]$p.ProcessId); Say ("  OK   Stopped the widget (PID {0})" -f $p.ProcessId) } catch { Say ("  NOTE Could not stop PID {0}" -f $p.ProcessId) } }
 if ($procs.Count -eq 0) { Say '  OK   Widget was not running' } else { Start-Sleep -Milliseconds 800 }
 
 # 2) Startup shortcut

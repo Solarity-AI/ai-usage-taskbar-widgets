@@ -12,7 +12,8 @@ check() { if [ "$2" = 0 ]; then echo "${green}✅ $1${off}"; else echo "${red}�
 # A failed build stops here: the checks below would otherwise run an older binary. It builds under a UTF-8
 # locale, as Terminal runs install.sh, so a script that only works in the C locale fails here too.
 if LC_ALL=en_US.UTF-8 "$here/build.sh" >"$tmp/build.log" 2>&1; then check "build" 0; else check "build" 1; tail -20 "$tmp/build.log"; exit 1; fi
-"$bin" --self-test >"$tmp/self.log"; check "self-test ($(tail -1 "$tmp/self.log"))" $?
+# Keep the exit code first: the $(tail ...) in the label would reset $? to 0 and hide a failing self-test.
+"$bin" --self-test >"$tmp/self.log"; rc=$?; check "self-test ($(tail -1 "$tmp/self.log"))" $rc
 grep '❌' "$tmp/self.log"
 
 # One version for the whole product: the app's must be the newest CHANGELOG.md entry (tools/package.ps1 checks the same).

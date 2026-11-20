@@ -21,13 +21,19 @@ if ($LASTEXITCODE -ne 0) { $fail++ }
 $broken = @()
 foreach ($page in @(@{ file = 'site\index.html'; base = 'site' }, @{ file = 'README.md'; base = '.' })) {
     $text = [IO.File]::ReadAllText((Join-Path $root $page.file))
-    $refs = @([regex]::Matches($text, '(?:src|href)="([^"#:?]+)"|\]\(([^)#:?\s]+)\)') | ForEach-Object { if ($_.Groups[1].Success) { $_.Groups[1].Value } else { $_.Groups[2].Value } } | Where-Object { $_ -and $_ -ne './' } | Sort-Object -Unique)
+    $refs = @([regex]::Matches($text, '(?:src|href)="([^"#:?]+)(?:[#?][^"]*)?"|\]\(([^)#:?\s]+)(?:[#?][^)\s]*)?\)') | ForEach-Object { if ($_.Groups[1].Success) { $_.Groups[1].Value } else { $_.Groups[2].Value } } | Where-Object { $_ -and $_ -ne './' } | Sort-Object -Unique)
     foreach ($r in $refs) { if (-not (Test-Path -LiteralPath (Join-Path (Join-Path $root $page.base) ([Uri]::UnescapeDataString($r))))) { $broken += "$($page.file) -> $r" } }
 }
 if ($broken.Count -gt 0) { $broken | ForEach-Object { Write-Host "FAIL missing link target: $_" }; $fail++ } else { Write-Host 'Links OK (website and README)' }
 # Version check and packaging (the same step the release workflow runs).
 & $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'tools\package.ps1') | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Host 'FAIL packaging or version check (tools\package.ps1)'; $fail++ } else { Write-Host 'Package OK (version, changelog and zips)' }
+# The README inside the zip has no docs\ or macos\ folder beside it: every link must be absolute (QA-09).
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$z = [IO.Compression.ZipFile]::OpenRead((Join-Path $root 'dist\ai-usage-taskbar-widgets.zip'))
+try { $rd = New-Object IO.StreamReader($z.GetEntry('README.md').Open()); $zr = $rd.ReadToEnd(); $rd.Dispose() } finally { $z.Dispose() }
+$rel = @([regex]::Matches($zr, '(?:src|href)="([^"]+)"|\]\(([^)\s]+)\)') | ForEach-Object { if ($_.Groups[1].Success) { $_.Groups[1].Value } else { $_.Groups[2].Value } } | Where-Object { $_ -notmatch '^(?:https?:|mailto:|#)' })
+if ($rel.Count -gt 0) { Write-Host "FAIL zip README has relative links: $($rel -join ', ')"; $fail++ } else { Write-Host 'Zip README links OK (all absolute)' }
 
 $suites = @(
     @{ name = 'Claude'; file = 'test-claude.ps1'; dir = 'claude-usage-widget' },

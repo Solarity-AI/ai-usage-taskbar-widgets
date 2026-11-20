@@ -46,6 +46,18 @@ $widgets = @{ 'claude-usage-widget' = @('claude-usage-widget.ps1', 'claude-usage
 $launchers = @{ 'claude-usage-widget' = 'Install Claude widget.cmd'; 'codex-usage-widget' = 'Install Codex widget.cmd' }
 foreach ($l in $launchers.Values) { if (-not (Test-Path -LiteralPath (Join-Path $root $l))) { throw "Missing $l" } }
 
+function ConvertTo-ZipReadme([string]$Text, [string]$Version) {
+    $repo = 'Solarity-AI/ai-usage-taskbar-widgets'
+    $isLocal = { param($u) $u -and $u -notmatch '^(?:[a-z][a-z0-9+.-]*:|#|/)' }
+    $Text = [regex]::Replace($Text, '(src|href)="([^"]+)"', { param($m) if (& $isLocal $m.Groups[2].Value) { '{0}="https://raw.githubusercontent.com/{1}/v{2}/{3}"' -f $m.Groups[1].Value, $repo, $Version, $m.Groups[2].Value } else { $m.Value } })
+    $Text = [regex]::Replace($Text, '\]\(([^)\s]+)\)', { param($m)
+        $u = $m.Groups[1].Value
+        if (-not (& $isLocal $u)) { return $m.Value }
+        $base = $(if ($u -match '\.(png|jpe?g|gif|svg|webp)$') { "https://raw.githubusercontent.com/$repo/v$Version/" } else { "https://github.com/$repo/blob/v$Version/" })
+        return '](' + $base + $u + ')' })
+    return $Text
+}
+
 function New-Zip([string]$Path, [string[]]$Folders, [bool]$WithReadme) {
     # Each widget folder comes with its double-click installer ("Install <Name> widget.cmd") at the zip root.
     # Entries use forward slashes and sit at the zip's root, so "Extract All" gives a folder holding the widget folders.
@@ -60,7 +72,12 @@ function New-Zip([string]$Path, [string[]]$Folders, [bool]$WithReadme) {
             $launcher = $launchers[$folder]
             [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, (Join-Path $root $launcher), $launcher, 'Optimal')
         }
-        if ($WithReadme) { [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, (Join-Path $root 'README.md'), 'README.md', 'Optimal') }
+        if ($WithReadme) {
+            # The zip has no docs\ or macos\ folder: point the README's relative links and images at this release on GitHub.
+            $entry = $zip.CreateEntry('README.md', 'Optimal')
+            $w = New-Object IO.StreamWriter($entry.Open(), (New-Object Text.UTF8Encoding($false)))
+            try { $w.Write((ConvertTo-ZipReadme ([IO.File]::ReadAllText((Join-Path $root 'README.md'))) $ver)) } finally { $w.Dispose() }
+        }
     } finally { $zip.Dispose() }
 }
 New-Zip (Join-Path $dist 'ai-usage-taskbar-widgets.zip') @('claude-usage-widget', 'codex-usage-widget') $true

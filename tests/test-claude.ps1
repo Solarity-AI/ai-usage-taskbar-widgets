@@ -22,7 +22,7 @@ $fakeFail = Join-Path $Root 'fake-claude-fail.cmd'
 function Run([string[]]$extra, [string]$home1 = $cfg, [string]$cli = $fakeFail) {
     $env:CLAUDE_CONFIG_DIR = $home1
     $psi = New-Object Diagnostics.ProcessStartInfo (Join-Path $PSHOME 'powershell.exe'), ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -Diagnostics -CachePath "{1}" -ClaudeCliPath "{2}" {3}' -f $Collector, $cache, $cli, ($extra -join ' '))
-    $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.CreateNoWindow = $true; $psi.StandardOutputEncoding = $utf8
+    $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.CreateNoWindow = $true; $psi.StandardOutputEncoding = $utf8; $psi.StandardErrorEncoding = $utf8
     $p = [Diagnostics.Process]::Start($psi); $o = $p.StandardOutput.ReadToEndAsync(); $e = $p.StandardError.ReadToEndAsync(); $p.WaitForExit()
     $env:CLAUDE_CONFIG_DIR = $null
     $json = $null; try { $json = $o.Result | ConvertFrom-Json } catch { }
@@ -122,6 +122,27 @@ Check 'during backoff: 0 HTTP calls, stale cache' ($x.diag -match 'http_calls=0'
 $x = Run @('-TestResponseFile', $full, '-Force')
 $st = Get-Content (Join-Path $Root 'cache\collector-state.json') -Raw | ConvertFrom-Json
 Check 'Refresh now (-Force) ignores backoff; success clears it' ($x.diag -match 'http_calls=1' -and $x.json.source -eq 'live' -and $st.backoff_count -eq 0) $x.diag
+$stPath = Join-Path $Root 'cache\collector-state.json'
+$nowU = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+[IO.File]::WriteAllText($stPath, ('{{"backoff_until":{0},"backoff_count":3,"backoff_code":"http_503","renew_at":{0},"cli_read_at":{0}}}' -f ($nowU + 86400)), $utf8)
+$x = Run @('-TestResponseFile', $full, '-TestNowUnix', ($nowU + 90))
+Check 'QA-02 #90: back-off a day ahead (clock jumped back) is dropped, live read' ($x.code -eq 0 -and $x.json.source -eq 'live' -and $x.diag -match 'http_calls=1') $x.diag
+[IO.File]::WriteAllText($stPath, '{"backoff_until":"soon","backoff_count":"many","renew_at":[1],"cli_read_at":{"a":1}}', $utf8)
+$x = Run @('-TestResponseFile', $full, '-TestNowUnix', ($nowU + 200))
+Check 'QA-02 #90: non-number state values keep defaults, no internal error' ($x.code -eq 0 -and $x.json.source -eq 'live') "$($x.code) $($x.json.error.code)"
+[IO.File]::WriteAllText($stPath, '{"backoff_until": Gül_Şahin}', $utf8)
+$x = Run @('-TestResponseFile', $full, '-TestNowUnix', ($nowU + 300))
+Check 'QA-17 #105: warnings reach the widget as UTF-8 (non-ASCII kept)' ($x.code -eq 0 -and $x.diag.Contains('warn: state file unreadable') -and $x.diag.Contains('Gül_Şahin')) $x.diag
+Remove-Item $stPath -Force
+$cAst = [System.Management.Automation.Language.Parser]::ParseFile($Collector, [ref]$null, [ref]$null)
+& {
+    $script:Inv = [Globalization.CultureInfo]::InvariantCulture
+    foreach ($f in $cAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -in 'ConvertTo-Number', 'ConvertTo-UtcDate', 'Format-Iso', 'New-Window' }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
+    $bad = $null; $err = ''
+    try { $bad = New-Window 40 1e30 $null } catch { $err = $_.Exception.Message }
+    $okW = New-Window 40 604800 $null
+    Check 'QA-18 #106: absurd window length is skipped, not an overflow' ($null -eq $bad -and -not $err -and $okW.window_seconds -eq 604800) $err
+}
 $rb = Run @('-TestHttpStatus', '503', '-TestNowUnix', '1921287700')
 Check 'reset passed -> weekly null + reset_passed' ($null -eq $rb.json.weekly -and @($rb.json.reset_passed) -contains 'weekly') ($rb.json.reset_passed -join ',')
 Set-Creds $future 'fixture-acct-B'
@@ -146,7 +167,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile($Widget, [ref]$
 $want = 'ConvertTo-UtcTime', 'ConvertTo-Unix', 'Get-Left', 'Format-Percent', 'Get-LevelKey', 'Format-Span', 'Get-ResetText', 'Format-LocalTime', 'Format-Rate',
     'Get-PaceInfo', 'Get-PaceView', 'Write-AtomicText', 'Get-PillFitHeight', 'New-History', 'Read-History', 'Add-HistorySample', 'ConvertTo-HistoryJson', 'Get-ClearX', 'Write-Log',
     'Format-Number', 'Format-Share', 'Test-Snoozed', 'Get-SnoozeUntil', 'Format-SnoozeEnd', 'Find-SignInCli', 'Find-BundledClaudeCli', 'Get-SameWindowSamples', 'Get-DailyBudget', 'Get-ChartGeometry', 'Get-Trend', 'Get-AlertsDue', 'ConvertTo-Settings', 'Add-WindowSample', 'Get-SpendValue', 'Format-DayTime', 'Format-ResetLine', 'Format-UsedShare', 'Get-PaceSummary', 'Get-WindowLabel', 'Invoke-Alerts', 'Get-BindingLimit',
-    'Read-JsonFile', 'Write-FlushedText', 'Save-CorruptCopy', 'Test-InBackoff', 'Test-CollectorBusy', 'Read-AlertsSent', 'Test-AlertSent', 'Get-ClampedPosition'
+    'Read-JsonFile', 'Write-FlushedText', 'Save-CorruptCopy', 'Test-InBackoff', 'Test-CollectorBusy', 'Read-AlertsSent', 'Test-AlertSent', 'Get-ClampedPosition', 'Format-AlertAt'
 $script:AppDir = $Root; $script:LogPath = Join-Path $Root 'widget.log'; $script:HistoryDays = 15; $script:AnchorGapPx = 8; $script:Inv = [Globalization.CultureInfo]::InvariantCulture
 foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $n.Name }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
 foreach ($a2 in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -in '$script:PillXaml', '$script:CardXaml', '$script:Thresholds' }, $true)) { . ([scriptblock]::Create($a2.Extent.Text)) }
@@ -251,6 +272,10 @@ $a2 = Add-HistorySample $h ([pscustomobject]@{ stale = $false; fetched_at = '202
 $a3 = Add-HistorySample $h ([pscustomobject]@{ stale = $true; fetched_at = '2026-11-12T00:09:00Z'; weekly = $wk; session = $null })
 $a4 = Add-HistorySample $h ([pscustomobject]@{ stale = $false; fetched_at = '2026-11-12T00:06:00Z'; weekly = $wk; session = $null })
 Check 'history: first kept, <5 min skipped, stale skipped, 5+ min kept' ($a1 -and -not $a2 -and -not $a3 -and $a4 -and $h.w.Count -eq 2 -and $h.s.Count -eq 0) "$a1 $a2 $a3 $a4 count=$($h.w.Count)"
+$h3 = New-History
+[void](Add-HistorySample $h3 ([pscustomobject]@{ stale = $false; fetched_at = '2026-11-13T00:00:00Z'; weekly = $wk; session = $null }))   # clock a day ahead
+$added3 = @(0..11 | Where-Object { Add-HistorySample $h3 ([pscustomobject]@{ stale = $false; fetched_at = ([DateTime]'2026-11-12T00:00:00Z').ToUniversalTime().AddMinutes(5 * $_).ToString('o'); weekly = $wk; session = $null }) }).Count
+Check 'QA-03 #91: after a clock ran a day ahead, new 5-minute samples are kept again' ($added3 -eq 12 -and $h3.w.Count -eq 12) "added=$added3 rows=$($h3.w.Count)"
 [void]$h.w.Insert(0, @{ t = $nU - 20 * 86400; u = 1; r = $rU - 3 * 604800 })
 $hp = Join-Path $Root 'history.json'
 [IO.File]::WriteAllText($hp, (ConvertTo-HistoryJson $h $nU))
@@ -330,6 +355,11 @@ Check 'alerts: a refused toast stays due (not marked shown) and is not retried w
 $script:AlertRetryAt = @{}; $script:ToastOk = $true
 Invoke-Alerts $iaData
 Check 'alerts: once Windows shows it, the alert is recorded and saved' ($script:AlertsSent.Count -ge 1 -and $script:ToastCalls -eq 2 * $iaFirst -and $script:AlertSaves -eq 1) "calls=$($script:ToastCalls) sent=$($script:AlertsSent.Count)"
+$src0 = [IO.File]::ReadAllText($Widget)
+$fa1 = $(try { Format-AlertAt @(25, 10) } catch { 'missing' }); $fa0 = $(try { Format-AlertAt @() } catch { 'missing' })
+Check 'QA-08 #96: alert thresholds are shown as share used' ($fa1 -eq '75%, 90% used' -and $fa0 -eq '' -and $src0.Contains('$at = Format-AlertAt $s.alert_at') -and $src0.Contains('You will be told at {0}{1}.') -and -not $src0.Contains('{0} left{1}')) $fa1
+$rf = [regex]::Match($src0, '(?s)function Start-Refresh \{.*?\n\}').Value; $cf = [regex]::Match($src0, '(?s)function Complete-Refresh \{.*?timed out.*?\n    \}').Value
+Check 'QA-16 #104: a failed or timed-out manual refresh clears the refreshing flag' (([regex]::Matches($rf, 'ManualRefresh = \$false')).Count -eq 2 -and $cf -match 'ManualRefresh = \$false') ''
 # ---- alerts
 $aset = ConvertTo-Settings $null 60
 $rk = [long][Math]::Round($rU / 3600.0)
@@ -469,6 +499,21 @@ $t2 = Start-Tree 2
 $alive2 = @($t2.kids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
 Check 'collector timeout: child left by an exited collector stopped' ($t2.kids.Count -ge 1 -and $t2.root.HasExited -and $alive2.Count -eq 0) "kids=$($t2.kids -join ',') alive=$($alive2 -join ',')"
 foreach ($id in @($t1.kids + $t2.kids)) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
+# QA-04 #92: uninstall and reinstall stop the widget's collector too, or it writes its state file back into the removed folder
+foreach ($sp in @('uninstall.ps1', 'install.ps1')) {
+    $sPath = Join-Path $Dir $sp
+    $sAst = [System.Management.Automation.Language.Parser]::ParseFile($sPath, [ref]$tok, [ref]$err)
+    $sSrc = [IO.File]::ReadAllText($sPath)
+    & {
+        foreach ($f in $sAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Stop-ProcessTree' }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
+        $t4 = Start-Tree 90
+        $e4 = ''; try { Stop-ProcessTree $t4.root.Id } catch { $e4 = $_.Exception.Message }
+        Start-Sleep -Milliseconds 700
+        $alive4 = @(@($t4.root.Id) + $t4.kids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
+        foreach ($id in $t4.kids) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
+        Check "QA-04 #92: $sp stops the widget and its collector child" ($t4.kids.Count -ge 1 -and $alive4.Count -eq 0 -and -not $e4 -and $sSrc.Contains('try { Stop-ProcessTree ([int]$p.ProcessId)')) "kids=$($t4.kids -join ',') alive=$($alive4 -join ',') $e4"
+    }
+}
 
 # #35 regression: a collector's CLI timeout ends the CLI and every child it started (Claude and Codex collectors)
 foreach ($cp in @($Collector, (Join-Path (Split-Path $Dir) 'codex-usage-widget\codex-usage.ps1'))) {

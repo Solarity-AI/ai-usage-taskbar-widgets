@@ -29,7 +29,8 @@ jobs:
         run: |
           cd site
           missing=0
-          for ref in $(grep -oE '(src|href)="[^"#:]+"' index.html | sed -E 's/^(src|href)="//; s/"$//' | sort -u); do
+          # A link with #anchor or ?query is checked too (the file part before it must exist).
+          for ref in $(grep -oE '(src|href)="[^"#:?]+([#?][^"]*)?"' index.html | sed -E 's/^(src|href)="//; s/"$//; s/[#?].*$//' | sort -u); do
             case "$ref" in ./) continue ;; esac
             if [ ! -e "$ref" ]; then echo "::error::site/index.html links to missing file $ref"; missing=1; fi
           done

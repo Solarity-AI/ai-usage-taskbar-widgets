@@ -44,7 +44,7 @@ foreach ($f in 'install.ps1', 'uninstall.ps1', 'watchdog.ps1') {
 $stale = @()
 foreach ($path in $wanted.Keys) {
     $current = $(if (Test-Path -LiteralPath $path) { [IO.File]::ReadAllText($path) } else { $null })
-    if ($current -ne $wanted[$path]) {
+    if ($current -cne $wanted[$path]) {   # -cne: a case-only drift ("claude" vs "Claude") is drift too
         if ($Check) { $stale += (Split-Path -Leaf $path) } else { [IO.File]::WriteAllText($path, $wanted[$path], $bom); "generated $(Split-Path -Leaf $path)" }
     }
 }
