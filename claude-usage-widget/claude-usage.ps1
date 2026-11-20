@@ -135,7 +135,8 @@ function New-Window {
     param($Used, $WindowSeconds, $ResetsAt)
     $u = ConvertTo-Number $Used
     $s = ConvertTo-Number $WindowSeconds
-    if ($null -eq $u -or $null -eq $s -or $s -le 0) { return $null }
+    # A duration over 1e9 s (~31 years) is bogus and would overflow [long] below.
+    if ($null -eq $u -or $null -eq $s -or $s -le 0 -or $s -gt 1e9) { return $null }
     $left = [Math]::Min(100.0, [Math]::Max(0.0, 100.0 - $u))
     return [ordered]@{
         used           = $u
@@ -388,9 +389,19 @@ function Read-State {
     try {
         if (Test-Path -LiteralPath $Path -PathType Leaf) {
             $j = (Read-SharedText $Path) | ConvertFrom-Json
-            foreach ($k in @($s.Keys)) { $v = Get-Prop $j $k; if ($null -ne $v) { $s[$k] = $v } }
+            foreach ($k in @($s.Keys)) {
+                $v = Get-Prop $j $k
+                if ($null -eq $v) { continue }
+                if ($s[$k] -is [string]) { $s[$k] = [string]$v; continue }
+                $n = ConvertTo-Number $v    # a hand-edited or damaged value keeps the default
+                if ($null -ne $n) { $s[$k] = $(if ($s[$k] -is [int]) { [int][Math]::Max(0, [Math]::Min(100, $n)) } else { $n }) }
+            }
         }
     } catch { Add-Warning "state file unreadable: $($_.Exception.Message)" }
+    # After the clock jumps back, a stored time can sit far in the future and block live reads for hours.
+    $nowU = Get-UnixNow
+    if ([double]$s.backoff_until -gt $nowU + 1860) { $s.backoff_until = 0.0; $s.backoff_count = 0 }
+    foreach ($k in @('renew_at', 'cli_read_at')) { if ([double]$s[$k] -gt $nowU + 60) { $s[$k] = 0.0 } }
     return $s
 }
 
@@ -708,8 +719,15 @@ function Write-Result {
     $stdout = [Console]::OpenStandardOutput()
     $stdout.Write($bytes, 0, $bytes.Length)
     $stdout.Flush()
-    foreach ($w in $script:Warnings) { [Console]::Error.WriteLine("warn: $w") }
-    if ($Diagnostics) { [Console]::Error.WriteLine("diag: http_calls=$($script:HttpCalls) cache=$($script:CacheResult) renew=$($script:RenewResult) cli=$($script:CliRead) source=$($Output.source) status=$($Output.status) exit=$Code") }
+    # UTF-8 bytes, like stdout: [Console]::Error uses the OEM code page and garbles non-ASCII text.
+    $stderr = [Console]::OpenStandardError()
+    $lines = @($script:Warnings | ForEach-Object { "warn: $_" })
+    if ($Diagnostics) { $lines += ("diag: http_calls=$($script:HttpCalls) cache=$($script:CacheResult) renew=$($script:RenewResult) cli=$($script:CliRead) source=$($Output.source) status=$($Output.status) exit=$Code") }
+    if ($lines.Count -gt 0) {
+        $eb = $script:Utf8NoBom.GetBytes((($lines -join "`n") + "`n"))
+        $stderr.Write($eb, 0, $eb.Length)
+        $stderr.Flush()
+    }
     exit $Code
 }
 

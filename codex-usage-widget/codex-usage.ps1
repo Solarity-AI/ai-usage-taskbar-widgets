@@ -139,7 +139,8 @@ function New-Window {
     param($Used, $WindowSeconds, $ResetsAt)
     $u = ConvertTo-Number $Used
     $s = ConvertTo-Number $WindowSeconds
-    if ($null -eq $u -or $null -eq $s -or $s -le 0) { return $null }
+    # A duration over 1e9 s (~31 years) is bogus and would overflow [long] below.
+    if ($null -eq $u -or $null -eq $s -or $s -le 0 -or $s -gt 1e9) { return $null }
     $left = [Math]::Min(100.0, [Math]::Max(0.0, 100.0 - $u))
     $r = ConvertTo-UtcDate $ResetsAt
     return [ordered]@{
@@ -380,7 +381,9 @@ function Read-SharedText {
 function Resolve-CodexHome {
     $configured = $env:CODEX_HOME
     if ($configured -and $configured.Trim().Length -gt 0) {
-        $p = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($configured.Trim()))
+        # An invalid path (bad characters, a bare drive) means the folder can't exist, not an internal error.
+        try { $p = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($configured.Trim())) }
+        catch { return [ordered]@{ path = $configured; configured = $true; exists = $false } }
         return [ordered]@{ path = $p; configured = $true; exists = (Test-Path -LiteralPath $p -PathType Container) }
     }
     $p = Join-Path $env:USERPROFILE '.codex'
@@ -396,6 +399,10 @@ function Read-AuthContext {
     }
     try { $j = (Read-SharedText $path) | ConvertFrom-Json }
     catch { return @{ ok = $false; error = (New-ErrorInfo 'auth_unreadable' "Codex sign-in data could not be read. $signIn") } }
+    # An empty file, `null` or a non-object is damaged sign-in data, not another sign-in mode.
+    if (-not ($j -is [System.Management.Automation.PSCustomObject])) {
+        return @{ ok = $false; error = (New-ErrorInfo 'auth_unreadable' "Codex sign-in data could not be read. $signIn") }
+    }
     $mode = Get-Prop $j 'auth_mode'
     if ($mode -ne 'chatgpt') {
         $safeMode = $(if ($mode -is [string] -and $mode -match '^[A-Za-z0-9_-]{1,32}$') { $mode } else { 'unknown' })
@@ -484,9 +491,24 @@ function Read-State {
     try {
         if (Test-Path -LiteralPath $Path -PathType Leaf) {
             $j = (Read-SharedText $Path) | ConvertFrom-Json
-            foreach ($k in @($s.Keys)) { $v = Get-Prop $j $k; if ($null -ne $v) { $s[$k] = $v } }
+            foreach ($k in @($s.Keys)) {
+                $v = Get-Prop $j $k
+                if ($null -eq $v) { continue }
+                if ($s[$k] -is [string]) { $s[$k] = [string]$v; continue }
+                $n = ConvertTo-Number $v    # a hand-edited or damaged value keeps the default
+                if ($null -eq $n) { continue }
+                $s[$k] = switch ($k) {
+                    'backoff_count' { [int][Math]::Max(0, [Math]::Min(100, $n)) }
+                    'reset_credits' { [int][Math]::Max(-1, [Math]::Min(1000, $n)) }
+                    default         { $n }
+                }
+            }
         }
     } catch { Add-Warning "state file unreadable: $($_.Exception.Message)" }
+    # After the clock jumps back, a stored time can sit far in the future and block live reads for hours.
+    $nowU = Get-UnixNow
+    if ([double]$s.backoff_until -gt $nowU + 1860) { $s.backoff_until = 0.0; $s.backoff_count = 0 }
+    foreach ($k in @('cli_at', 'cli_fail_at')) { if ([double]$s[$k] -gt $nowU + 60) { $s[$k] = 0.0 } }
     return $s
 }
 
@@ -855,9 +877,16 @@ function Write-Result {
     $stdout = [Console]::OpenStandardOutput()
     $stdout.Write($bytes, 0, $bytes.Length)
     $stdout.Flush()
-    foreach ($w in $script:Warnings) { [Console]::Error.WriteLine("warn: $w") }
+    # UTF-8 bytes, like stdout: [Console]::Error uses the OEM code page and garbles non-ASCII text.
+    $stderr = [Console]::OpenStandardError()
+    $lines = @($script:Warnings | ForEach-Object { "warn: $_" })
     if ($Diagnostics) {
-        [Console]::Error.WriteLine("diag: http_calls=$($script:HttpCalls) cache=$($script:CacheResult) cli=$($script:CliResult) source=$($Output.source) status=$($Output.status) exit=$Code")
+        $lines += ("diag: http_calls=$($script:HttpCalls) cache=$($script:CacheResult) cli=$($script:CliResult) source=$($Output.source) status=$($Output.status) exit=$Code")
+    }
+    if ($lines.Count -gt 0) {
+        $eb = $script:Utf8NoBom.GetBytes((($lines -join "`n") + "`n"))
+        $stderr.Write($eb, 0, $eb.Length)
+        $stderr.Flush()
     }
     exit $Code
 }
@@ -877,6 +906,12 @@ try {
     $cache = Read-Cache $CachePath
     $salt = $(if ($null -ne $cache) { $cache.salt } else { New-SaltHex })
     $tag = $(if ($auth.ok) { Get-AccountTag $auth.account $auth.mode $salt } else { $null })
+    # No usable auth.json (Codex keeps its sign-in in the OS credential store): the CLI is the only source,
+    # so a reading it gave stays valid for the cache rules instead of being thrown away.
+    $cliOnlyCodes = @('auth_missing', 'auth_malformed', 'auth_unreadable')
+    if (-not $auth.ok -and $null -ne $cache -and $cache.observation.via -eq 'cli' -and $cliOnlyCodes -contains $auth.error.code -and $cache.account_tag) {
+        $tag = $cache.account_tag
+    }
     $cacheCompatible = ($null -ne $cache -and $null -ne $tag -and $cache.account_tag -ceq $tag)
     if ($null -ne $cache -and -not $cacheCompatible) { $script:CacheResult = 'incompatible' }
 

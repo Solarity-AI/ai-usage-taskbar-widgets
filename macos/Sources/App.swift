@@ -16,7 +16,7 @@ var launchAgentURL: URL {
 
 func writeLaunchAgent() {
     guard let exe = Bundle.main.executablePath else { return }
-    let plist: [String: Any] = [
+    var plist: [String: Any] = [
         "Label": launchAgentLabel,
         "ProgramArguments": [exe],
         "RunAtLoad": true,
@@ -24,6 +24,10 @@ func writeLaunchAgent() {
         "ProcessType": "Interactive",
         "LimitLoadToSessionType": "Aqua",
     ]
+    // Keep the Claude account this app reads after a login start (QA-12).
+    if let c = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"], !c.trimmingCharacters(in: .whitespaces).isEmpty {
+        plist["EnvironmentVariables"] = ["CLAUDE_CONFIG_DIR": c]
+    }
     try? FileManager.default.createDirectory(at: launchAgentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
     if let d = try? PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0) {
         try? d.write(to: launchAgentURL, options: .atomic)
@@ -221,7 +225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             lastError = e
             if case .http(let s, let ra) = e, s == 429 || s >= 500 {
                 backoffMinutes = min(30, max(2, backoffMinutes * 2))
-                nextAllowed = Date().addingTimeInterval(max(ra ?? 0, backoffMinutes * 60))
+                nextAllowed = Date().addingTimeInterval(backoffDelay(retryAfter: ra, backoffMinutes: backoffMinutes))
             } else if e == .network || e == .offline {
                 backoffMinutes = min(30, max(2, backoffMinutes * 2))
                 nextAllowed = Date().addingTimeInterval(backoffMinutes * 60)
@@ -295,7 +299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        if let e = lastError { menu.addItem(textItem((e.needsSignIn ? "⚠ " : "⚠ ") + e.message, size: 12, color: .systemOrange)) }
+        if let e = lastError { menu.addItem(textItem("⚠ " + e.message, size: 12, color: .systemOrange)) }
         if let r = reading {
             if let w = r.weekly {
                 menu.addItem(textItem("\(formatPct(w.used)) used this week" + (plan.map { " · \($0.capitalized) plan" } ?? ""), size: 15, color: .labelColor, weight: .semibold))

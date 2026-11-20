@@ -62,7 +62,7 @@ $script:ExitMarkerPath = Join-Path $script:AppDir 'exited-by-user'  # left by Ex
 $script:CollectorPath = Join-Path $PSScriptRoot $script:CollectorName
 $script:UninstallPath = Join-Path $PSScriptRoot 'uninstall.ps1'
 $script:ShortcutPath  = Join-Path ([Environment]::GetFolderPath('Startup')) ('{0} Usage Widget.lnk' -f $script:ProductName)
-$script:Version       = '1.5.2'          # release version (tools\package.ps1 and the release workflow check it)
+$script:Version       = '1.5.3'          # release version (tools\package.ps1 and the release workflow check it)
 $script:HomeUrl       = 'https://solarity-ai.github.io/ai-usage-taskbar-widgets/'
 $script:CollectorTimeoutSeconds = 120   # the collector may run the official CLI
 $script:AnchorGapPx   = 8               # physical pixels between neighbouring pills / the notification area
@@ -726,6 +726,14 @@ function Save-Settings {
     } catch { Write-Log "could not save settings: $($_.Exception.Message)" }
 }
 
+function Format-AlertAt {
+    # Settings keep the share LEFT (25 = alert at 25% left); every label says "% used" since v1.4.0.
+    param($AlertAt)
+    $used = @(@($AlertAt) | Where-Object { $null -ne $_ } | ForEach-Object { 100 - [int]$_ } | Sort-Object -Unique | ForEach-Object { "$_%" })
+    if ($used.Count -eq 0) { return '' }
+    return (($used -join ', ') + ' used')
+}
+
 function New-History { return @{ w = (New-Object System.Collections.ArrayList); s = (New-Object System.Collections.ArrayList); m = @{}; c = (New-Object System.Collections.ArrayList) } }
 
 function Read-History {
@@ -761,6 +769,8 @@ function Add-WindowSample {
     $r = ConvertTo-UtcTime $Window.resets_at
     if ($null -eq $r) { return $false }
     $rU = ConvertTo-Unix $r
+    # Rows dated after this reading come from a clock that ran ahead; left in place they would block every new sample.
+    while ($List.Count -gt 0 -and [double]$List[$List.Count - 1].t -gt $T + 300) { $List.RemoveAt($List.Count - 1) }
     $last = $(if ($List.Count -gt 0) { $List[$List.Count - 1] } else { $null })
     if ($null -ne $last) {
         if ($T -le [double]$last.t) { return $false }
@@ -797,6 +807,7 @@ function Add-HistorySample {
     $v = Get-SpendValue $Data
     if ($null -ne $v) {
         $c = $History.c
+        while ($c.Count -gt 0 -and [double]$c[$c.Count - 1].t -gt $tU + 300) { $c.RemoveAt($c.Count - 1) }
         $last = $(if ($c.Count -gt 0) { $c[$c.Count - 1] } else { $null })
         if ($null -eq $last -or ($tU -gt [double]$last.t -and ([Math]::Abs([double]$last.v - $v) -gt 0.0001 -or ($tU - [double]$last.t) -ge 1800))) {
             [void]$c.Add(@{ t = $tU; v = $v }); $added = $true
@@ -1752,6 +1763,7 @@ function Start-Refresh {
         $msg = ('The collector file {0} is missing from {1}. An antivirus may have quarantined it: restore it from quarantine, or run install.ps1 again from the widget''s source folder (it reinstalls only what is missing).' -f $script:CollectorName, $PSScriptRoot)
         if ($script:CollectorFailure -ne $msg) { Write-Log "collector missing: $($script:CollectorPath)" }
         $script:CollectorFailure = $msg
+        $script:ManualRefresh = $false   # a later automatic poll must not show "refreshing…"
         Update-View
         return
     }
@@ -1776,7 +1788,7 @@ function Start-Refresh {
         $script:Refreshing = $true
         Update-View
     } catch {
-        $script:Proc = $null
+        $script:Proc = $null; $script:ManualRefresh = $false
         $script:CollectorFailure = 'The local collector could not be started.'
         Write-Log "collector start failed: $($_.Exception.GetType().Name)"
         Update-View
@@ -1822,7 +1834,7 @@ function Complete-Refresh {
         if ($elapsed -lt $script:CollectorTimeoutSeconds) { return }
         try { [void](Stop-ProcessTree $p.Id -SkipRoot:$p.HasExited) } catch { }
         try { $p.Dispose() } catch { }
-        $script:Proc = $null; $script:Refreshing = $false
+        $script:Proc = $null; $script:Refreshing = $false; $script:ManualRefresh = $false
         $script:CollectorFailure = 'The local collector timed out.'
         Write-CollectorLog 'timeout' 'collector timed out and was stopped'
         Update-View
@@ -2445,7 +2457,7 @@ function Update-MenuChecks {
     $polls = @{ 60 = '1 minute'; 120 = '2 minutes'; 300 = '5 minutes'; 600 = '10 minutes' }
     $m.MenuPill.Header = '_Pill shows: ' + $(if ($s.pill -eq 'budget') { "today's budget" } else { 'time until reset' })
     $m.MenuPoll.Header = 'Refresh _every: ' + $polls[[int]$s.poll]
-    $m.MenuAlerts.Header = '_Alerts: ' + $(if (-not $s.alerts) { 'off' } else { $at = @($s.alert_at | ForEach-Object { "$_%" }) -join ', '; $(if ($at) { "on ($at)" } else { 'on' }) })
+    $m.MenuAlerts.Header = '_Alerts: ' + $(if (-not $s.alerts) { 'off' } else { $at = Format-AlertAt $s.alert_at; $(if ($at) { "on ($at)" } else { 'on' }) })
     $m.MenuSnooze.Header = $(if ($snoozed) { 'Snoo_zed until ' + (Format-SnoozeEnd ([double]$s.snooze_until)) } else { 'Snoo_ze alerts' })
 }
 
@@ -2489,8 +2501,8 @@ function Initialize-Menu {
     }
     $m.MenuAlertRunOut.add_Click({ $script:Settings.alert_runout = -not $script:Settings.alert_runout; Save-Settings })
     $m.MenuAlertTest.add_Click({
-        $at = @($script:Settings.alert_at | ForEach-Object { "$_%" }) -join ', '
-        $ok = Show-Toast ('{0} usage alerts work' -f $script:ProductName) ('You will be told at {0} left{1}.' -f $(if ($at) { $at } else { 'no threshold' }), $(if ($script:Settings.alert_runout) { ' and when you are on track to run out early' } else { '' }))
+        $at = Format-AlertAt $script:Settings.alert_at
+        $ok = Show-Toast ('{0} usage alerts work' -f $script:ProductName) ('You will be told at {0}{1}.' -f $(if ($at) { $at } else { 'no threshold' }), $(if ($script:Settings.alert_runout) { ' and when you are on track to run out early' } else { '' }))
         if (-not $ok) { [void][Windows.MessageBox]::Show('Windows did not accept the notification. Check that notifications are on for Windows PowerShell (Settings > System > Notifications).', $script:WindowTitle) }
     })
     $m.MenuAllBars.add_Click({ $script:Settings.all_taskbars = -not $script:Settings.all_taskbars; Save-Settings; Update-Placement })

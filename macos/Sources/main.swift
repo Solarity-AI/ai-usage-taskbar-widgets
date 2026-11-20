@@ -105,6 +105,7 @@ func selfTest() -> Int32 {
     check("span 2d 3h", formatSpan(hours: 51) == "2d 3h")
     check("span 45m", formatSpan(hours: 0.75) == "45m")
     check("Retry-After seconds", retryAfterSeconds("120") == 120)
+    check("back-off capped at 30 min even with a huge Retry-After (QA-11)", backoffDelay(retryAfter: 86_400, backoffMinutes: 2) == 1800 && backoffDelay(retryAfter: 90, backoffMinutes: 2) == 120 && backoffDelay(retryAfter: nil, backoffMinutes: 4) == 240)
     check("keychain service default name", keychainServices().last == "Claude Code-credentials")
     check("sha256", sha256Hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
 

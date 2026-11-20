@@ -2,6 +2,26 @@
 
 Each release is listed here, newest first. The version is `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1` and `appVersion` in `macos/Sources/Core.swift`; tagging `v<version>` publishes it as a GitHub release with downloadable zips.
 
+## 1.5.3 (2026-11-20)
+
+A deep QA pass ([#88](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/88)) fixed 23 bugs.
+
+**Fixed:** after the PC clock jumped back, the collector waited out the jump before refreshing again, and the history and the week's chart stopped growing ([#90](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/90), [#91](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/91)).
+
+**Fixed:** *Uninstall* left the collector running, which then created the widget's folder again ([#92](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/92)).
+
+**Fixed (Codex):** with `auth.json` missing, unreadable or empty, the widget kept fresh readings from the Codex CLI instead of discarding them, and an empty `auth.json` gives a clear error ([#93](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/93), [#94](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/94)); a quoted or invalid `CODEX_HOME` now says the folder is missing ([#107](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/107)).
+
+**Fixed:** the *Alerts* menu header and the test alert name thresholds by share used, like the alerts themselves ([#96](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/96)).
+
+**Fixed:** "refreshing…" no longer shows on automatic refreshes after a manual one timed out ([#104](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/104)); collector warnings with non-ASCII text are no longer garbled in `widget.log` ([#105](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/105)); one out-of-range limit no longer hides the whole reading ([#106](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/106)).
+
+**Fixed (macOS):** a long `Retry-After` from the usage service stopped refreshes for hours; the wait is now capped at 30 minutes ([#99](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/99)). The app started at login reads the same `CLAUDE_CONFIG_DIR` account as the installer ([#100](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/100)), and running `./macos/install.sh` again keeps *Start at login* off when you turned it off ([#111](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/111)).
+
+**Docs and website:** the README in the release zip has working images and links ([#97](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/97)); the README lists every menu item ([#102](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/102)); the website's light-theme links pass contrast, it says the token (not "nothing") is never logged, and its menu image has the right size ([#98](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/98), [#101](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/101), [#103](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/103)).
+
+**Develop:** `macos/test.sh` fails when a self-test fails ([#89](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/89)) and its redirect test can fail ([#110](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/110)); the Codex tests no longer start an installed Codex CLI ([#95](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/95)); the sync check catches letter-case drift ([#108](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/108)); the link checks cover links with `#` or `?` ([#109](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/109)).
+
 ## 1.5.2 (2026-11-18)
 
 **Fixed:** clicking the taskbar no longer hides the Windows pills for up to 1.5 s. Windows raises the taskbar a moment after the click, so the pills now check again for 600 ms and move back on top only when a taskbar covers them; menus and pop-ups over a pill keep their place ([#82](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/82)).

@@ -266,11 +266,25 @@ try {
     Write-Ok "Watchdog task: $WatchdogTask (every 5 minutes)"
 } catch { Write-Note ('Watchdog task not created: {0}' -f $_.Exception.Message) }
 
+function Stop-ProcessTree {
+    # Stops a process and every descendant: a refresh in flight has a collector child (and maybe the official CLI)
+    # that would otherwise keep running and write its state file back into the folder being removed.
+    param([int]$RootId)
+    $all = @(Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId -ErrorAction SilentlyContinue)
+    $ids = New-Object System.Collections.ArrayList
+    [void]$ids.Add($RootId)
+    for ($i = 0; $i -lt $ids.Count; $i++) {
+        foreach ($c in $all) { if ($c.ParentProcessId -eq $ids[$i] -and $c.ProcessId -ne $PID -and -not $ids.Contains([int]$c.ProcessId)) { [void]$ids.Add([int]$c.ProcessId) } }
+    }
+    for ($i = $ids.Count - 1; $i -ge 1; $i--) { try { Stop-Process -Id $ids[$i] -Force -ErrorAction Stop } catch { } }
+    Stop-Process -Id $RootId -Force -ErrorAction Stop   # the caller reports whether the widget itself stopped
+}
+
 # ------------------------------------------------------------------ 5
 Write-Step 5 'Starting the Claude widget'
 $old = @(Get-WidgetProcesses)
 foreach ($p in $old) {
-    try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop; Write-Ok ('Stopped previous Claude widget (PID {0})' -f $p.ProcessId) } catch { Write-Note ('Could not stop PID {0}' -f $p.ProcessId) }
+    try { Stop-ProcessTree ([int]$p.ProcessId); Write-Ok ('Stopped previous Claude widget (PID {0})' -f $p.ProcessId) } catch { Write-Note ('Could not stop PID {0}' -f $p.ProcessId) }
 }
 if ($old.Count -gt 0) { Start-Sleep -Milliseconds 800 }
 

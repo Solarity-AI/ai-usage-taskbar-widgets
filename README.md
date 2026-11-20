@@ -4,10 +4,11 @@
 [![Latest release](https://img.shields.io/github/v/release/Solarity-AI/ai-usage-taskbar-widgets?label=release)](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest)
 [![Website](https://img.shields.io/website?url=https%3A%2F%2Fsolarity-ai.github.io%2Fai-usage-taskbar-widgets%2F&label=website)](https://solarity-ai.github.io/ai-usage-taskbar-widgets/)
 [![Windows 10 and 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4)](#requirements)
+[![macOS 13+](https://img.shields.io/badge/macOS-13%2B-555555)](macos/README.md)
 
-Two small Windows taskbar widgets show how much of your weekly **Claude** and **Codex** allowance is used. They also show when the allowance runs out at your current pace. Everything runs on your own PC: no server, no telemetry, nothing to sign up for.
+See how much of your weekly **Claude** and **Codex** allowance is used, and when it runs out at your current pace, right on the Windows taskbar. A native **macOS menu-bar app** covers Claude on a Mac. Everything runs on your own computer: no server, no telemetry, nothing to sign up for.
 
-**[Website](https://solarity-ai.github.io/ai-usage-taskbar-widgets/)** · **[Download the latest release](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest)** · [Mac version](macos/README.md) · [Changelog](CHANGELOG.md)
+**[Website](https://solarity-ai.github.io/ai-usage-taskbar-widgets/)** · **[Download the latest release](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest)** · **[Mac version](macos/README.md)** · [Changelog](CHANGELOG.md)
 
 <p>
   <img src="docs/images/claude-card.png" width="330" alt="Claude usage card: 55% left this week, pace box saying On pace and when it would run out, weekly and 5-hour limit bars">
@@ -18,12 +19,17 @@ Two small Windows taskbar widgets show how much of your weekly **Claude** and **
   <img src="docs/images/codex-pill.png" height="44" alt="Codex pill on the taskbar: ring at 10% with an orange border, '10% codex' over 5d 1h">
 </p>
 
+## Quick start
+
+- **Windows:** download [**ai-usage-taskbar-widgets.zip**](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest/download/ai-usage-taskbar-widgets.zip), unzip it, double-click **Install Claude widget.cmd** and/or **Install Codex widget.cmd**. Details in [Install](#install).
+- **macOS 13+:** clone this repo and run `./macos/install.sh` in Terminal. Details in [macos/README.md](macos/README.md#install).
+
 ## What you get
 
 - **A pill on the taskbar.** A ring shows the share of the weekly allowance used, with the time until the weekly reset (or today's budget). The edge turns orange or red when little is left.
 - **A card on hover.** It shows the share used and 2 pace boxes, *Pace this week* and *Pace this 5-hour session*: *On pace*, *Cutting close* or *Too fast*, with the time each limit runs out at your current rate. It also has a bar for every limit (weekly, 5-hour session, per-model limits) with its reset time, plus credits or extra usage when your plan has them. Click the pill to pin the card and refresh it.
 - **Alerts.** Windows notifications fire at 75% and 90% used, when the limit is reached, and when you are on track to run out before the reset. Thresholds are adjustable, and alerts can be snoozed for 1 hour, until tomorrow morning or until the weekly reset.
-- **A right-click menu.** It has *Refresh now*, *Open usage page*, *Sign in again*, *Snooze alerts*, *Alerts*, *Pill shows*, *Refresh every*, *Compact pill*, *Show details* (a burn-up chart of the week and the full pace breakdown), *Show on every taskbar*, *Start with Windows*, *Uninstall* and *About* (version and website).
+- **A right-click menu.** It has *Refresh now*, *Open usage page*, *Sign in again*, *Snooze alerts*, *Alerts*, *Pill shows*, *Refresh every*, *Compact pill*, *Show details* (a burn-up chart of the week and the full pace breakdown), *Show on every taskbar*, *Reset position*, *Start with Windows*, *Open data folder*, *Uninstall*, *About* (version and website) and *Exit*.
 - **Light and dark themes**, following Windows. Per-monitor DPI. The pills hide while a full-screen app is in front. Drag the main pill sideways to move it; the Codex pill sits next to the Claude pill.
 
 <p>
@@ -48,11 +54,11 @@ Install one widget or both; they are independent.
 
 Prefer a terminal? Open the unzipped folder in one: on Windows 11, right-click an empty spot and choose **Open in Terminal**; on Windows 10, hold **Shift**, right-click an empty spot and choose **Open PowerShell window here**. Then run the installer for each widget you want:
 
-```bash
+```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\claude-usage-widget\install.ps1
 ```
 
-```bash
+```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\codex-usage-widget\install.ps1
 ```
 
@@ -62,7 +68,7 @@ Each installer copies the widget to `%LOCALAPPDATA%\ClaudeUsageWidget` (or `Code
 
 Right-click a pill → **Uninstall…**, or run:
 
-```bash
+```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\claude-usage-widget\uninstall.ps1
 ```
 

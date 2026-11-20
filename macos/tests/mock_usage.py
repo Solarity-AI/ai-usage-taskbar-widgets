@@ -1,5 +1,6 @@
 """Local stand-in for the usage endpoint (127.0.0.1 only). The path picks the reply:
-/ok -> full usage JSON, /401, /429 (Retry-After: 90), /html (unexpected body), /redirect (302).
+/ok -> full usage JSON, /401, /429 (Retry-After: 90), /html (unexpected body), /redirect (302 to /elsewhere
+on this same server, so a followed redirect would show up in the log).
 Every request's Authorization and anthropic-beta headers are appended to the file given as argv[2]."""
 import http.server
 import json
@@ -22,7 +23,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif self.path == "/html":
             body, status, extra = b"<html>maintenance</html>", 200, {}
         elif self.path == "/redirect":
-            body, status, extra = b"", 302, {"Location": "http://127.0.0.1:1/elsewhere"}
+            body, status, extra = b"", 302, {"Location": f"http://127.0.0.1:{self.server.server_port}/elsewhere"}
         elif self.path == "/429":
             body, status, extra = b"{}", 429, {"Retry-After": "90"}
         else:

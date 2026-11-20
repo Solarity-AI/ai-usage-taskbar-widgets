@@ -14,9 +14,21 @@ $results = New-Object System.Collections.ArrayList
 function Check($name, [bool]$ok, $detail) { [void]$results.Add([pscustomobject]@{ Result = $(if ($ok) { 'PASS' } else { 'FAIL' }); Check = $name; Detail = "$detail" }) }
 function Run([string[]]$extra) {
     $env:CODEX_HOME = $ch
-    $o = & (Join-Path $PSHOME 'powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $Dir 'codex-usage.ps1') -CachePath $cache @extra
+    # -NoCli: a live success also asks the CLI every 30 min, and on a dev PC that would start the real codex.exe (QA-07).
+    $o = & (Join-Path $PSHOME 'powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $Dir 'codex-usage.ps1') -CachePath $cache -NoCli @extra
     $env:CODEX_HOME = $null
     return ($o | ConvertFrom-Json)
+}
+# Exit code, JSON and UTF-8 stderr, read the way the widget reads them.
+function RunP([string]$home1, [string]$cachePath, [string[]]$extra) {
+    $env:CODEX_HOME = $home1
+    $psi = New-Object Diagnostics.ProcessStartInfo (Join-Path $PSHOME 'powershell.exe'), ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -Diagnostics -CachePath "{1}" {2}' -f (Join-Path $Dir 'codex-usage.ps1'), $cachePath, ($extra -join ' '))
+    $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.CreateNoWindow = $true
+    $psi.StandardOutputEncoding = $utf8; $psi.StandardErrorEncoding = $utf8
+    $p = [Diagnostics.Process]::Start($psi); $o = $p.StandardOutput.ReadToEndAsync(); $e = $p.StandardError.ReadToEndAsync(); $p.WaitForExit()
+    $env:CODEX_HOME = $null
+    $json = $null; try { $json = $o.Result | ConvertFrom-Json } catch { }
+    [pscustomobject]@{ code = $p.ExitCode; json = $json; diag = $e.Result.Trim() }
 }
 $a = Run @('-TestResponseFile', $resp, '-Force'); Start-Sleep -Seconds 1
 $b = Run @('-TestResponseFile', $resp, '-Force')
@@ -64,6 +76,41 @@ $m = & (Join-Path $PSHOME 'powershell.exe') -NoProfile -NonInteractive -Executio
 $env:CODEX_HOME = $null
 Check 'cli: no CLI found -> last reading shown stale' ($m.source -eq 'cache' -and $m.stale -eq $true) $m.source
 
+# QA bug hunt 2026-11-20 regressions (each failed before its fix)
+$nope = Join-Path $Root 'nope.exe'
+$stPath = Join-Path $Root 'cache\collector-state.json'
+$nowU = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+[IO.File]::WriteAllText($stPath, ('{{"backoff_until":{0},"backoff_count":3,"backoff_code":"http_503","cli_at":{0},"cli_fail_at":{0}}}' -f ($nowU + 86400)), $utf8)
+$x = RunP $ch $cache @('-NoCli', '-TestResponseFile', "`"$resp`"", '-TestNowUnix', ($nowU + 90))
+Check 'QA-02 #90: back-off a day ahead (clock jumped back) is dropped, live read' ($x.code -eq 0 -and $x.json.source -eq 'live' -and $x.diag -match 'http_calls=1') $x.diag
+[IO.File]::WriteAllText($stPath, '{"backoff_until":"soon","backoff_count":"many","cli_at":[1],"reset_credits":"x"}', $utf8)
+$x = RunP $ch $cache @('-NoCli', '-TestResponseFile', "`"$resp`"", '-TestNowUnix', ($nowU + 200))
+Check 'QA-02 #90: non-number state values keep defaults, no internal error' ($x.code -eq 0 -and $x.json.source -eq 'live') "$($x.code) $($x.json.error.code)"
+[IO.File]::WriteAllText($stPath, '{"backoff_until": Gül_Şahin}', $utf8)
+$x = RunP $ch $cache @('-NoCli', '-TestResponseFile', "`"$resp`"", '-TestNowUnix', ($nowU + 300))
+Check 'QA-17 #105: warnings reach the widget as UTF-8 (non-ASCII kept)' ($x.code -eq 0 -and $x.diag.Contains('Gül_Şahin')) $x.diag
+Remove-Item $stPath -Force
+$big = Join-Path $Root 'resp-big.json'
+[IO.File]::WriteAllText($big, ('{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":85,"limit_window_seconds":604800,"reset_at":R},"secondary_window":{"used_percent":5,"limit_window_seconds":1e30,"reset_at":R}}}').Replace('R', $rWeek), $utf8)
+$x = RunP $ch $cache @('-NoCli', '-TestResponseFile', "`"$big`"", '-Force')
+Check 'QA-18 #106: absurd window length is skipped, the rest is shown' ($x.code -eq 0 -and $x.json.weekly.used -eq 85) "$($x.code) $($x.json.error.code)"
+$x = RunP '"C:\quoted\.codex"' (Join-Path $Root 'c19\usage-cache.json') @('-NoCli', '-Force')
+Check 'QA-19 #107: invalid CODEX_HOME -> folder not found, not internal' ($x.code -eq 3 -and $x.json.error.code -eq 'codex_home_missing') "$($x.code) $($x.json.error.code)"
+$ch6 = Join-Path $Root 'codex-home-null'; [void](New-Item -ItemType Directory -Path $ch6 -Force)
+foreach ($body in @('', 'null', '[1,2]')) {
+    [IO.File]::WriteAllText((Join-Path $ch6 'auth.json'), $body, $utf8)
+    $x = RunP $ch6 (Join-Path $Root 'c06\usage-cache.json') @('-NoCli', '-Force')
+    Check "QA-06 #94: auth.json '$body' -> unreadable, not another sign-in mode" ($x.code -eq 3 -and $x.json.error.code -eq 'auth_unreadable') "$($x.code) $($x.json.error.code)"
+}
+$ch5 = Join-Path $Root 'codex-home-noauth'; [void](New-Item -ItemType Directory -Path $ch5 -Force)
+$c5 = Join-Path $Root 'c05\usage-cache.json'
+$before = @(Get-Content $calls).Count
+$x = RunP $ch5 $c5 @('-CodexCliPath', "`"$fakeCli`"", '-Force')
+$y = RunP $ch5 $c5 @('-CodexCliPath', "`"$fakeCli`"")
+Check 'QA-05 #93: no auth.json -> CLI reading reused from the 60 s cache' ($x.json.source -eq 'cli' -and $y.json.source -eq 'cache' -and $y.json.stale -eq $false -and @(Get-Content $calls).Count -eq $before + 1) "$($x.json.source) $($y.json.source) $($y.diag)"
+$z = RunP $ch5 $c5 @('-CodexCliPath', "`"$nope`"", '-TestNowUnix', ($nowU + 120))
+Check 'QA-05 #93: CLI then fails -> last reading shown stale, not sign in needed' ($z.code -eq 2 -and $z.json.source -eq 'cache' -and $z.json.stale -eq $true) "$($z.code) $($z.json.source) $($z.diag)"
+
 $tok = $null; $err = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $Dir 'codex-usage-widget.ps1'), [ref]$tok, [ref]$err)
 foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -in 'Write-AtomicText', 'Write-FlushedText', 'Get-PillFitHeight' }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
@@ -83,7 +130,7 @@ try { $mn = [Windows.Markup.XamlReader]::Load((New-Object Xml.XmlNodeReader ([xm
 $cl = [IO.File]::ReadAllText((Join-Path $Dir '..\claude-usage-widget\claude-usage-widget.ps1'))
 $cx = [IO.File]::ReadAllText((Join-Path $Dir 'codex-usage-widget.ps1'))
 $strip = { param($t) ([regex]'(?s)# >>> product.*?# <<< product').Replace($t, '', 1) -replace '(?m)^    (Claude|Codex) usage taskbar widget.*$', '' }
-Check 'widget: Codex file == Claude file except the product block' ((& $strip $cl) -eq (& $strip $cx)) ''
+Check 'widget: Codex file == Claude file except the product block' ((& $strip $cl) -ceq (& $strip $cx)) ''
 Check 'widget: Codex anchors to the Claude pill' ($cx -match "AnchorTitle   = 'Claude usage'" -and $cx -match "AppName       = 'CodexUsageWidget'") ''
 $results | Format-Table -AutoSize -Wrap | Out-String -Width 200
 "PASS={0} FAIL={1}" -f @($results | Where-Object Result -eq 'PASS').Count, @($results | Where-Object Result -eq 'FAIL').Count

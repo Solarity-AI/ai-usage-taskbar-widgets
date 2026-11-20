@@ -4,7 +4,7 @@
 import CryptoKit
 import Foundation
 
-let appVersion = "1.5.2"
+let appVersion = "1.5.3"
 let weekSeconds: Double = 604_800
 let sessionSeconds: Double = 18_000
 let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
@@ -230,6 +230,12 @@ func readAuth(credentialsFile: URL? = nil) -> Result<AuthContext, UsageError> {
 final class NoRedirect: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
+}
+
+/// Wait before the next try after a 429 or 5xx: the server's Retry-After or the doubling back-off, never over 30 minutes
+/// (a huge Retry-After, or one dated far ahead by a wrong clock, would otherwise stop readings for hours).
+func backoffDelay(retryAfter: Double?, backoffMinutes: Double) -> Double {
+    min(1800, max(retryAfter ?? 0, backoffMinutes * 60))
 }
 
 func retryAfterSeconds(_ v: String?) -> Double? {
