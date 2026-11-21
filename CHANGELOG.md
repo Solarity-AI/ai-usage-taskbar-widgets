@@ -2,6 +2,10 @@
 
 Each release is listed here, newest first. The version is `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1` and `appVersion` in `macos/Sources/Core.swift`; tagging `v<version>` publishes it as a GitHub release with downloadable zips.
 
+## 1.5.4 (2026-11-20)
+
+**Changed:** the card always shows both pace boxes. When no 5-hour session is running, *Pace this 5-hour session* now says *No session* with the share used, instead of disappearing. The Mac menu shows the same row.
+
 ## 1.5.3 (2026-11-20)
 
 A deep QA pass ([#88](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/issues/88)) fixed 23 bugs.

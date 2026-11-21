@@ -90,6 +90,11 @@ func selfTest() -> Int32 {
         check("5-hour session pace: run-out time in about 17 min", sp.runOutAt.map { abs($0.timeIntervalSince(now) - 1000) < 1 } == true)
         check("5-hour session pace text names the session (\(ss.text))", ss.text.hasSuffix("90% used · 50% of the session gone"))
     } else { check("5-hour session pace exists", false) }
+    // No session running: the 5-hour row still shows, as "No session".
+    let idleW = LimitWindow(id: "five_hour", name: "", kind: "session", used: 0, windowSeconds: sessionSeconds, resetsAt: nil)
+    let idle = idleSessionPace(idleW, now: now)
+    check("no session running -> 5-hour row \"No session\" (\(idle?.summary.text ?? "none"))", idle?.summary.status == "No session" && idle?.title == "Pace this 5-hour session")
+    check("a running session gets no idle row", idleSessionPace(sw, now: now) == nil && idleSessionPace(w, now: now) == nil)
 
     // History: 3 h of 2-minute readings keep one sample per 5 minutes, enough for a recent rate.
     var hist: [Sample] = []

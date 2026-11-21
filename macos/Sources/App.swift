@@ -309,6 +309,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if let p = paceInfo(w, samples: history[w.id] ?? []), let s = paceSummary(p) {
                     menu.addItem(rowItem(title: paceTitle(p), value: s.status, fill: p.used / 100, color: colorFor(s.level),
                                          note: s.text, marker: p.elapsedH / p.windowH))
+                } else if let idle = idleSessionPace(w) {
+                    menu.addItem(rowItem(title: idle.title, value: idle.summary.status, fill: w.used / 100, color: colorFor(idle.summary.level),
+                                         note: idle.summary.text))
                 }
             }
             menu.addItem(.separator())
