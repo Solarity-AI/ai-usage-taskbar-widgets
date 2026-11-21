@@ -62,7 +62,7 @@ $script:ExitMarkerPath = Join-Path $script:AppDir 'exited-by-user'  # left by Ex
 $script:CollectorPath = Join-Path $PSScriptRoot $script:CollectorName
 $script:UninstallPath = Join-Path $PSScriptRoot 'uninstall.ps1'
 $script:ShortcutPath  = Join-Path ([Environment]::GetFolderPath('Startup')) ('{0} Usage Widget.lnk' -f $script:ProductName)
-$script:Version       = '1.5.3'          # release version (tools\package.ps1 and the release workflow check it)
+$script:Version       = '1.5.4'          # release version (tools\package.ps1 and the release workflow check it)
 $script:HomeUrl       = 'https://solarity-ai.github.io/ai-usage-taskbar-widgets/'
 $script:CollectorTimeoutSeconds = 120   # the collector may run the official CLI
 $script:AnchorGapPx   = 8               # physical pixels between neighbouring pills / the notification area
@@ -306,6 +306,25 @@ function Get-PaceSummary {
         }
     }
     return [pscustomobject]$s
+}
+
+function Get-IdleSessionSummary {
+    # The 5-hour pace box when no session is running (the usage reply has no reset time, or it has passed):
+    # the box still shows, so both limits always have a pace box.
+    param($Window, $Now = [DateTime]::UtcNow)
+    if ($null -eq $Window) { return $null }
+    $left = Get-Left $Window
+    if ($null -eq $left) { return $null }
+    $dot = [string][char]0x00B7
+    $secs = $Window.window_seconds
+    $hours = $(if ($null -ne $secs -and [double]$secs -gt 0) { [Math]::Round([double]$secs / 3600.0) } else { 5 })
+    $reset = ConvertTo-UtcTime $Window.resets_at
+    if ($null -ne $reset -and $reset -gt (ConvertTo-UtcTime $Now)) { return $null }   # a running session has a real pace
+    $used = 100.0 - $left
+    return [pscustomobject][ordered]@{
+        label = ('PACE THIS {0}-HOUR SESSION' -f $hours); status = 'No session'; level = 'gray'
+        text = ('{0} used {1} a new {2}-hour session starts with your next message' -f (Format-UsedShare $used), $dot, $hours)
+        fill = [Math]::Min(1.0, [Math]::Max(0.0, $used / 100.0)); marker = 0.0 }
 }
 
 function Get-BindingLimit {
@@ -2313,6 +2332,7 @@ function Update-View {
         foreach ($pb in @(@{ pre = ''; pace = $wp }, @{ pre = 'Session'; pace = $sp })) {
             $box = $ui[$pb.pre + 'PaceBox']
             $ps = Get-PaceSummary $pb.pace $now
+            if ($null -eq $ps -and $pb.pre -eq 'Session') { $ps = Get-IdleSessionSummary $d.session $now }
             if ($null -eq $ps) { $box.Visibility = 'Collapsed'; continue }
             $pal = $T.pace[$ps.level]
             Set-BoxColors $box $pal $ui[$pb.pre + 'PaceLabel'] $ui[$pb.pre + 'PaceText'] $ui[$pb.pre + 'PaceStatus']

@@ -167,7 +167,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile($Widget, [ref]$
 $want = 'ConvertTo-UtcTime', 'ConvertTo-Unix', 'Get-Left', 'Format-Percent', 'Get-LevelKey', 'Format-Span', 'Get-ResetText', 'Format-LocalTime', 'Format-Rate',
     'Get-PaceInfo', 'Get-PaceView', 'Write-AtomicText', 'Get-PillFitHeight', 'New-History', 'Read-History', 'Add-HistorySample', 'ConvertTo-HistoryJson', 'Get-ClearX', 'Write-Log',
     'Format-Number', 'Format-Share', 'Test-Snoozed', 'Get-SnoozeUntil', 'Format-SnoozeEnd', 'Find-SignInCli', 'Find-BundledClaudeCli', 'Get-SameWindowSamples', 'Get-DailyBudget', 'Get-ChartGeometry', 'Get-Trend', 'Get-AlertsDue', 'ConvertTo-Settings', 'Add-WindowSample', 'Get-SpendValue', 'Format-DayTime', 'Format-ResetLine', 'Format-UsedShare', 'Get-PaceSummary', 'Get-WindowLabel', 'Invoke-Alerts', 'Get-BindingLimit',
-    'Read-JsonFile', 'Write-FlushedText', 'Save-CorruptCopy', 'Test-InBackoff', 'Test-CollectorBusy', 'Read-AlertsSent', 'Test-AlertSent', 'Get-ClampedPosition', 'Format-AlertAt'
+    'Read-JsonFile', 'Write-FlushedText', 'Save-CorruptCopy', 'Test-InBackoff', 'Test-CollectorBusy', 'Read-AlertsSent', 'Test-AlertSent', 'Get-ClampedPosition', 'Format-AlertAt', 'Get-IdleSessionSummary'
 $script:AppDir = $Root; $script:LogPath = Join-Path $Root 'widget.log'; $script:HistoryDays = 15; $script:AnchorGapPx = 8; $script:Inv = [Globalization.CultureInfo]::InvariantCulture
 foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $want -contains $n.Name }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
 foreach ($a2 in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -in '$script:PillXaml', '$script:CardXaml', '$script:Thresholds' }, $true)) { . ([scriptblock]::Create($a2.Extent.Text)) }
@@ -233,6 +233,14 @@ $close = Get-PaceInfo ([pscustomobject]@{ used = 49; window_seconds = 604800; re
 Check 'pace box: lasts with under 5% to spare -> "Cutting close" (amber)' ((Get-PaceSummary $close $nowP).status -eq 'Cutting close' -and (Get-PaceSummary $close $nowP).level -eq 'amber') (Get-PaceSummary $close $nowP).status
 Check 'pace box: first hour -> "Too early to tell" (gray); limit -> "Limit reached" with reset' ((Get-PaceSummary $early $nowP).status -eq 'Too early to tell' -and (Get-PaceSummary $early $nowP).level -eq 'gray' -and (Get-PaceSummary $lim $nowP).status -eq 'Limit reached' -and (Get-PaceSummary $lim $nowP).text -match '^Resets ') ''
 Check 'pace box: no pace -> no box' ($null -eq (Get-PaceSummary $null $nowP)) ''
+# No 5-hour session running (no reset time, or it passed): the session box still shows, gray, with the share used.
+$idleS = Get-IdleSessionSummary ([pscustomobject]@{ used = 0; left = 100; window_seconds = 18000; resets_at = $null }) $nowP
+Check 'session box: no session running -> "No session" box, gray, 5-hour label' ($null -ne $idleS -and $idleS.status -eq 'No session' -and $idleS.level -eq 'gray' -and $idleS.label -eq 'PACE THIS 5-HOUR SESSION' -and $idleS.text -like '0% used*next message') $(if ($idleS) { $idleS.text })
+$pastS = Get-IdleSessionSummary ([pscustomobject]@{ used = 40; window_seconds = 18000; resets_at = $nowP.AddMinutes(-5).ToString('o') }) $nowP
+Check 'session box: reset already passed -> "No session" box' ($null -ne $pastS -and $pastS.status -eq 'No session') ''
+Check 'session box: a running session keeps its real pace (no idle box)' ($null -eq (Get-IdleSessionSummary ([pscustomobject]@{ used = 40; window_seconds = 18000; resets_at = $nowP.AddHours(2).ToString('o') }) $nowP) -and $null -eq (Get-IdleSessionSummary $null $nowP)) ''
+$srcW = Get-Content -Raw -Encoding UTF8 (Join-Path $Dir 'claude-usage-widget.ps1')
+Check 'card falls back to the idle session box when the session has no pace' ($srcW -match 'Get-IdleSessionSummary \$d\.session') ''
 Check 'pace box: weekly box is labelled for the week' ($sm.label -eq 'PACE THIS WEEK') $sm.label
 # 5-hour session box: 2.5 h of 5 gone, 90% used -> 36 %/h, runs out in 10/36 h (16.7 min), before the reset.
 $sesP = Get-PaceInfo ([pscustomobject]@{ used = 90; window_seconds = 18000; resets_at = '2026-11-12T02:30:00Z' }) @() $nowP

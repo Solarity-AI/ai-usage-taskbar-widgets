@@ -4,7 +4,7 @@
 import CryptoKit
 import Foundation
 
-let appVersion = "1.5.3"
+let appVersion = "1.5.4"
 let weekSeconds: Double = 604_800
 let sessionSeconds: Double = 18_000
 let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
@@ -382,6 +382,16 @@ struct PaceSummary { var status: String; var level: PaceLevel; var text: String 
 
 /// Row title for a pace summary: "Pace this week" or "Pace this 5-hour session".
 func paceTitle(_ p: Pace) -> String { p.windowH > 24 ? "Pace this week" : "Pace this \(Int(p.windowH.rounded()))-hour session" }
+
+/// The 5-hour pace row when no session is running (no reset time, or it has passed), so both limits always
+/// have a pace row. Nil for a running session (it has a real pace) and for other limits.
+func idleSessionPace(_ w: LimitWindow, now: Date = Date()) -> (title: String, summary: PaceSummary)? {
+    guard w.kind == "session" else { return nil }
+    if let reset = w.resetsAt, reset > now { return nil }
+    let hours = w.windowSeconds > 0 && w.windowSeconds.isFinite && w.windowSeconds < 1e7 ? Int((w.windowSeconds / 3600).rounded()) : 5
+    return ("Pace this \(hours)-hour session",
+            PaceSummary(status: "No session", level: .gray, text: "\(formatPct(w.used)) used · a new \(hours)-hour session starts with your next message"))
+}
 
 /// A share or span the app can show and act on: finite and of a plausible size. Int() would trap on anything else.
 func plausible(_ v: Double) -> Bool { v.isFinite && abs(v) < 1e9 }
