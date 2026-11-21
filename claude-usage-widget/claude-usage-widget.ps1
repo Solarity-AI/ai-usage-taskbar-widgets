@@ -62,7 +62,7 @@ $script:ExitMarkerPath = Join-Path $script:AppDir 'exited-by-user'  # left by Ex
 $script:CollectorPath = Join-Path $PSScriptRoot $script:CollectorName
 $script:UninstallPath = Join-Path $PSScriptRoot 'uninstall.ps1'
 $script:ShortcutPath  = Join-Path ([Environment]::GetFolderPath('Startup')) ('{0} Usage Widget.lnk' -f $script:ProductName)
-$script:Version       = '1.5.4'          # release version (tools\package.ps1 and the release workflow check it)
+$script:Version       = '1.5.5'          # release version (tools\package.ps1 and the release workflow check it)
 $script:HomeUrl       = 'https://solarity-ai.github.io/ai-usage-taskbar-widgets/'
 $script:CollectorTimeoutSeconds = 120   # the collector may run the official CLI
 $script:AnchorGapPx   = 8               # physical pixels between neighbouring pills / the notification area
@@ -2317,6 +2317,7 @@ function Update-View {
         if ($d.source -eq 'session_log' -and $d.account_verified -ne $true) { [void]$status.Add('From a local session log whose account could not be confirmed.') }
         if (@($d.reset_passed).Count -gt 0) { [void]$status.Add('A limit window has reset since this reading; waiting for a new one.') }
         if ($d.error -and $d.error.message) { [void]$status.Add([string]$d.error.message) }
+        if ($d.account_warning) { [void]$status.Add([string]$d.account_warning) }
         if ($needsSignIn -and [string]$d.error.message -notmatch 'Sign in again') { [void]$status.Add(('To fix it: right-click the pill ' + [char]0x203A + ' Sign in again.')) }
         if ($script:CollectorFailure) { [void]$status.Add($script:CollectorFailure) }
         # Placement notes only when the pill could not go where it belongs (a small nudge left is not news).

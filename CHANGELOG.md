@@ -2,6 +2,10 @@
 
 Each release is listed here, newest first. The version is `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1` and `appVersion` in `macos/Sources/Core.swift`; tagging `v<version>` publishes it as a GitHub release with downloadable zips.
 
+## 1.5.5 (2026-11-20)
+
+**Added (Windows):** a warning when Claude Code's saved sign-in on this PC belongs to a different account than the one Claude Code shows as signed in, for example after the desktop app switched to another account while the saved sign-in kept the old one. The widget then showed another person's usage with no sign of it. The card now says so under *Check this*, with the fix: *Sign in again* with your own account. The check calls the profile endpoint at most every 10 minutes, or right after the sign-in file changes, and stores only a yes/no.
+
 ## 1.5.4 (2026-11-20)
 
 **Changed:** the card always shows both pace boxes. When no 5-hour session is running, *Pace this 5-hour session* now says *No session* with the share used, instead of disappearing. The Mac menu shows the same row.

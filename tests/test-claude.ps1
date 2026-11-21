@@ -52,6 +52,34 @@ $keepCache = $cache; $cache = Join-Path $Root 'cache-dir\usage-cache.json'; [voi
 try { $r = Run @('-TestResponseFile', $full, '-Force') } finally { $cache = $keepCache }
 Check '#74: cache write failure -> reading kept, warn: line on stderr' ($r.code -eq 0 -and $r.json.source -eq 'live' -and $r.diag -match '(?m)^warn: cache not saved: ') $r.diag
 
+# Account check: the saved token belongs to another account than Claude Code's own record -> account_warning.
+$keepCache = $cache; $cache = Join-Path $Root 'acct-cache\usage-cache.json'
+try {
+    $same = Resp 'profile-same' @{ account = @{ uuid = 'fixture-acct-A' } }
+    $other = Resp 'profile-other' @{ account = @{ uuid = 'fixture-acct-B' } }
+    $r = Run @('-TestResponseFile', $full, '-TestProfileFile', $same, '-Force')
+    Check 'account check: same account -> no account_warning' ($r.code -eq 0 -and $null -eq $r.json.account_warning -and $r.raw.Contains('"account_warning":null')) $r.raw
+    Set-Creds $future   # new .credentials.json write time -> checked again at once
+    $r = Run @('-TestResponseFile', $full, '-TestProfileFile', $other, '-Force')
+    Check 'account check: other account -> account_warning with the fix' ($r.code -eq 0 -and [string]$r.json.account_warning -match 'different account' -and [string]$r.json.account_warning -match 'Sign in again' -and [string]$r.json.account_warning -notmatch 'fixture-acct') $r.json.account_warning
+    $st = Get-Content (Join-Path (Split-Path $cache) 'collector-state.json') -Raw
+    Check 'account check: state keeps only 0/1, no account ids' ($st -match '"acct_mismatch":1' -and $st -notmatch 'fixture-acct') $st
+    $r = Run @('-TestResponseFile', $full, '-TestProfileFile', $same)
+    Check 'account check: cache hit keeps the warning, no new check within 10 min' ($r.diag -match 'cache=hit' -and [string]$r.json.account_warning -match 'different account') $r.diag
+    $r = Run @('-TestResponseFile', $full, '-TestProfileFile', $same, '-Force')
+    Check 'account check: throttled to 10 min (same credentials file)' ([string]$r.json.account_warning -match 'different account') ''
+    Start-Sleep -Milliseconds 50; Set-Creds $future   # signed in again: re-checked, warning gone
+    $r = Run @('-TestResponseFile', $full, '-TestProfileFile', $same, '-Force')
+    Check 'account check: sign-in again with the right account clears the warning' ($null -eq $r.json.account_warning) $r.raw
+    Set-Creds $future
+    $r = Run @('-TestResponseFile', $full, '-TestProfileFile', $other, '-Force')
+    Set-Creds $future
+    $r2 = Run @('-TestResponseFile', $full, '-TestProfileFile', (Resp 'profile-bad' @{ nope = 1 }), '-Force')
+    Check 'account check: unreadable profile -> no warning for the new credentials (unknown, never guessed)' ($null -eq $r2.json.account_warning -and $r2.code -eq 0) $r2.raw
+} finally { $cache = $keepCache }
+$src1 = Get-Content $Widget -Raw
+Check 'widget (source check): account_warning goes into the status box' ($src1 -match '\$d\.account_warning\) \{ \[void\]\$status\.Add') ''
+
 $r = Run @('-TestResponseFile', (Resp 'no7' ([ordered]@{ five_hour = [ordered]@{ utilization = 40; resets_at = '2026-11-13T01:00:00+00:00' }; seven_day = $null })), '-Force')
 Check 'missing weekly -> null (never the 5-hour value)' ($null -eq $r.json.weekly -and $r.json.session.used -eq 40 -and $r.raw.Contains('"scoped":[]')) $r.raw
 $r = Run @('-TestResponseFile', (Resp 'zero' ([ordered]@{ five_hour = $null; seven_day = [ordered]@{ utilization = 0; resets_at = '2030-11-19T02:59:41+00:00' } })), '-Force')
