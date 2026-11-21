@@ -24,7 +24,9 @@
       plan               subscription type string or null
       extra_usage        { enabled, utilization } or null
       fetched_at, status (ok|stale|unavailable), source (live|cache|none), stale, age_seconds,
-      account_verified, unclassified, reset_passed, error, collected_at
+      account_verified, unclassified, reset_passed, account_warning, error, collected_at
+      account_warning is set when the saved token belongs to another account than Claude Code's own account
+      record (.claude.json), e.g. after the desktop app signed in as someone else (checked at most every 10 min).
 
     Exit codes: 0 fresh, 2 stale fallback, 3 unavailable, 4 internal error (JSON still printed).
 #>
@@ -40,6 +42,8 @@ param(
     [string]$TestResponseFile,
     # TEST ONLY (simulated): pretend the request failed with this HTTP status (-1 = network error, -2 = offline: DNS or connect failure).
     [int]$TestHttpStatus = 0,
+    # TEST ONLY (simulated): JSON file used as the /api/oauth/profile answer (account check) instead of the network.
+    [string]$TestProfileFile,
     # TEST ONLY: override "now" as Unix seconds.
     [double]$TestNowUnix = 0
 )
@@ -48,6 +52,9 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $script:UsageUri        = 'https://api.anthropic.com/api/oauth/usage'
+$script:ProfileUri      = 'https://api.anthropic.com/api/oauth/profile'
+$script:AccountCheckSeconds = 600
+$script:AccountWarning  = 'Claude Code''s saved sign-in on this PC belongs to a different account than the one Claude Code shows as signed in, so these numbers may be another person''s. To fix it: right-click the pill ' + [char]0x203A + ' Sign in again and sign in with your own account (or run "claude" in a terminal and type /login).'
 $script:RenewRetrySeconds = 600
 $script:RenewTimeoutMs  = 40000
 $script:WeekSeconds     = 604800
@@ -294,16 +301,16 @@ function Read-AuthContext {
     $plan = Get-Prop $o 'subscriptionType'
     $exp = ConvertTo-UtcDate (Get-Prop $o 'expiresAt')
     # Account identity for cache compatibility (used only inside this process, never output).
-    $account = $null
+    $account = $null; $accountUuid = $null
     $cfgPath = $(if ($ClaudeHome.configured) { Join-Path $ClaudeHome.path '.claude.json' } else { Join-Path $env:USERPROFILE '.claude.json' })
     try {
         if (Test-Path -LiteralPath $cfgPath -PathType Leaf) {
             $oa = Get-Prop ((Read-SharedText $cfgPath) | ConvertFrom-Json) 'oauthAccount'
             $a = Get-Prop $oa 'accountUuid'; $org = Get-Prop $oa 'organizationUuid'
-            if ($a -is [string] -and $a.Length -gt 0) { $account = "$a|$org" }
+            if ($a -is [string] -and $a.Length -gt 0) { $account = "$a|$org"; $accountUuid = $a }
         }
     } catch { $account = $null }
-    $ctx = @{ ok = $true; access = $access; account = $account; plan = $(if ($plan -is [string] -and $plan.Length -gt 0) { $plan } else { $null }); expired = $false }
+    $ctx = @{ ok = $true; access = $access; account = $account; accountUuid = $accountUuid; plan = $(if ($plan -is [string] -and $plan.Length -gt 0) { $plan } else { $null }); expired = $false }
     if ($null -ne $exp -and $exp -le $script:Now.AddSeconds(30)) {
         $ctx.expired = $true
         $ctx.error = New-ErrorInfo 'auth_expired' ("The Claude Code sign-in on this PC expired {0}. $renew" -f $exp.ToLocalTime().ToString('g'))
@@ -385,7 +392,7 @@ function Get-UnixNow { return [double]([DateTimeOffset][DateTime]::SpecifyKind($
 function Read-State {
     # Small non-secret state file: no tokens, no identifiers.
     param([string]$Path)
-    $s = @{ backoff_until = 0.0; backoff_count = 0; backoff_code = ''; renew_at = 0.0; renew_cred_ticks = 0.0; cli_read_at = 0.0 }
+    $s = @{ backoff_until = 0.0; backoff_count = 0; backoff_code = ''; renew_at = 0.0; renew_cred_ticks = 0.0; cli_read_at = 0.0; acct_checked_at = 0.0; acct_cred_ticks = 0.0; acct_mismatch = 0 }
     try {
         if (Test-Path -LiteralPath $Path -PathType Leaf) {
             $j = (Read-SharedText $Path) | ConvertFrom-Json
@@ -401,7 +408,7 @@ function Read-State {
     # After the clock jumps back, a stored time can sit far in the future and block live reads for hours.
     $nowU = Get-UnixNow
     if ([double]$s.backoff_until -gt $nowU + 1860) { $s.backoff_until = 0.0; $s.backoff_count = 0 }
-    foreach ($k in @('renew_at', 'cli_read_at')) { if ([double]$s[$k] -gt $nowU + 60) { $s[$k] = 0.0 } }
+    foreach ($k in @('renew_at', 'cli_read_at', 'acct_checked_at')) { if ([double]$s[$k] -gt $nowU + 60) { $s[$k] = 0.0 } }
     return $s
 }
 
@@ -468,6 +475,46 @@ function Get-CredTicks {
     param($ClaudeHome)
     # Last-write time in Unix ms (exact in a double, unlike .NET ticks).
     try { return [double]([DateTimeOffset](Get-Item -LiteralPath (Join-Path $ClaudeHome.path '.credentials.json')).LastWriteTimeUtc).ToUnixTimeMilliseconds() } catch { return 0.0 }
+}
+
+function Get-TokenAccountUuid {
+    # Which account the saved token belongs to (/api/oauth/profile). Used only for the comparison, never output.
+    param($Auth)
+    if ($TestProfileFile) {
+        try { return [string](Get-Prop (Get-Prop ((Read-SharedText $TestProfileFile) | ConvertFrom-Json) 'account') 'uuid') } catch { return $null }
+    }
+    if ($TestResponseFile -or $TestHttpStatus -ne 0) { return $null }   # simulated runs never touch the network
+    try {
+        $req = [Net.HttpWebRequest]::Create($script:ProfileUri)
+        $req.Method = 'GET'; $req.Timeout = 8000; $req.ReadWriteTimeout = 8000; $req.AllowAutoRedirect = $false
+        $req.Accept = 'application/json'
+        $req.UserAgent = 'claude-usage-widget/1.0 (Windows PowerShell 5.1)'
+        $req.Headers.Add('Authorization', 'Bearer ' + $Auth.access)
+        $req.Headers.Add('anthropic-beta', 'oauth-2025-04-20')
+        $resp = $req.GetResponse()
+        try {
+            $sr = New-Object IO.StreamReader($resp.GetResponseStream(), [Text.Encoding]::UTF8)
+            try { $j = $sr.ReadToEnd() | ConvertFrom-Json } finally { $sr.Dispose() }
+        } finally { $resp.Close() }
+        $u = Get-Prop (Get-Prop $j 'account') 'uuid'
+        if ($u -is [string] -and $u.Length -gt 0) { return $u }
+    } catch { Add-Warning "account check failed: $($_.Exception.Message)" }
+    return $null
+}
+
+function Test-AccountMismatch {
+    # $true when the saved token belongs to another account than Claude Code's own account record. The answer is
+    # kept in the state file as 0/1 (no identifiers) for the current .credentials.json; re-checked when that file
+    # changes, else at most every AccountCheckSeconds. -MayCall:$false only reads the stored answer.
+    param($Auth, $State, $ClaudeHome, [bool]$MayCall)
+    if ($null -eq $Auth -or -not $Auth.ok -or -not $Auth.accountUuid -or $null -eq $State) { return $false }
+    $cred = Get-CredTicks $ClaudeHome
+    if ($MayCall -and $Auth.access -and ([double]$State.acct_cred_ticks -ne $cred -or ((Get-UnixNow) - [double]$State.acct_checked_at) -ge $script:AccountCheckSeconds)) {
+        $State.acct_checked_at = Get-UnixNow
+        $u = Get-TokenAccountUuid $Auth
+        if ($null -ne $u -and $u.Length -gt 0) { $State.acct_cred_ticks = $cred; $State.acct_mismatch = [int]($u -cne $Auth.accountUuid) }
+    }
+    return ([int]$State.acct_mismatch -eq 1 -and [double]$State.acct_cred_ticks -eq $cred)
 }
 
 function Invoke-CliRenewal {
@@ -684,6 +731,7 @@ function New-Output {
         unclassified     = @()
         reset_passed     = @()
         notice           = $null
+        account_warning  = $null
         error            = $ErrorInfo
         collected_at     = (Format-Iso $script:Now)
     }
@@ -755,7 +803,9 @@ try {
         $crossed = (Test-ResetPassed $obs.weekly) -or (Test-ResetPassed $obs.session)
         if ($age -ge -5 -and $age -lt $script:CacheTtlSeconds -and -not $crossed) {
             $script:CacheResult = 'hit'
-            Write-Result (New-Output $obs 'cache' $false $true $null) 0
+            $out = New-Output $obs 'cache' $false $true $null
+            if (Test-AccountMismatch $auth (Read-State (Join-Path (Split-Path -Parent $CachePath) 'collector-state.json')) $claudeHome $false) { $out.account_warning = $script:AccountWarning }
+            Write-Result $out 0
         }
         $script:CacheResult = 'expired'
     } elseif ($Force) { $script:CacheResult = 'bypassed' }
@@ -782,6 +832,7 @@ try {
                 # Token revoked or expired early: one renewal through the CLI, then one retry.
                 if (Invoke-CliRenewal $claudeHome $state) { $a2 = Read-AuthContext $claudeHome; if ($a2.ok -and -not $a2.expired) { $auth = $a2; $r = Invoke-UsageRequest $auth } }
             }
+            $mismatch = $(if ($r.ok) { Test-AccountMismatch $auth $state $claudeHome $true } else { $false })
             $auth.access = $null
             if ($r.ok) {
                 if ([int]$state.backoff_count -gt 0 -or [double]$state.backoff_until -gt 0) { $state.backoff_count = 0; $state.backoff_until = 0.0; $state.backoff_code = '' }
@@ -789,7 +840,9 @@ try {
                 $obs = ConvertFrom-LiveUsage $r.json
                 $obs.plan = $auth.plan
                 if ($tag) { try { Write-Cache $CachePath $salt $tag $obs } catch { Add-Warning "cache not saved: $($_.Exception.Message)" } }
-                Write-Result (New-Output $obs 'live' $false ($null -ne $tag) $null) 0
+                $out = New-Output $obs 'live' $false ($null -ne $tag) $null
+                if ($mismatch) { $out.account_warning = $script:AccountWarning }
+                Write-Result $out 0
             }
             $err = $r.error
             $offline = [bool]$r.offline
@@ -841,13 +894,18 @@ try {
             if ((ConvertTo-Json -InputObject ([pscustomobject]$state) -Compress) -ne $stateBefore) { Write-State $statePath $state }
             $out = New-Output $cliObs 'cli' $false ($null -ne $tag) $null
             $out.notice = $notice
+            if (Test-AccountMismatch $auth $state $claudeHome $false) { $out.account_warning = $script:AccountWarning }
             Write-Result $out 0
         }
     }
     if ((ConvertTo-Json -InputObject ([pscustomobject]$state) -Compress) -ne $stateBefore) { Write-State $statePath $state }
 
     # Live failed: the last verified reading for this same account, marked stale.
-    if ($cacheCompatible) { Write-Result (New-Output $cache.observation 'cache' $true $true $err) 2 }
+    if ($cacheCompatible) {
+        $out = New-Output $cache.observation 'cache' $true $true $err
+        if (Test-AccountMismatch $auth $state $claudeHome $false) { $out.account_warning = $script:AccountWarning }
+        Write-Result $out 2
+    }
     Write-Result (New-Output $null 'none' $true $false $err) 3
 } catch {
     Write-Result (New-Output $null 'none' $true $false (New-ErrorInfo 'internal' 'The Claude usage collector hit an internal error.')) 4
