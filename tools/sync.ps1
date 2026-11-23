@@ -32,6 +32,18 @@ $script:MarkText      = '>_'
 
 $wanted = [ordered]@{}
 $src = [IO.File]::ReadAllText((Join-Path $claude 'claude-usage-widget.ps1'))
+# The shared top strip (shared\WidgetStrip.cs, the same file in every Solarity widget repo) is embedded in the
+# widget so the install stays one script: regenerate the block between its markers from the .cs file.
+$cs = [IO.File]::ReadAllText((Join-Path $root 'shared\WidgetStrip.cs')).Replace("`r`n", "`n").TrimEnd("`n")
+if ($cs -match "(?m)^'@") { throw "shared\WidgetStrip.cs has a line starting with '@, which would end the here-string" }
+$stripRe = [regex]'(?s)    # >>> WidgetStrip\.cs[^
+]*
+.*?    # <<< WidgetStrip\.cs'
+if (-not $stripRe.IsMatch($src)) { throw 'WidgetStrip.cs block not found in claude-usage-widget.ps1' }
+$stripBlock = "    # >>> WidgetStrip.cs (generated from shared\WidgetStrip.cs by tools\sync.ps1: edit it there)`n" +
+    "    if (-not ('SolarityWidgets.Strip' -as [type])) {`n        Add-Type -TypeDefinition @'`n" + $cs + "`n'@`n    }`n    # <<< WidgetStrip.cs"
+$src = $stripRe.Replace($src, $stripBlock.Replace('$', '$$'), 1)
+$wanted[(Join-Path $claude 'claude-usage-widget.ps1')] = $src
 $re = [regex]'(?s)# >>> product.*?# <<< product'
 if (-not $re.IsMatch($src)) { throw 'product block not found in claude-usage-widget.ps1' }
 $w = $re.Replace($src, $block.Replace('$', '$$'), 1)
