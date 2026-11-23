@@ -2,6 +2,10 @@
 
 Each release is listed here, newest first. The version is `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1` and `appVersion` in `macos/Sources/Core.swift`; tagging `v<version>` publishes it as a GitHub release with downloadable zips.
 
+## 1.6.0 (2026-11-22)
+
+**Changed (Windows):** the pill now sits in a thin strip across the top of the main screen (40 DIP, 50 px at 125%), shared by every Solarity widget, instead of on the taskbar. Windows reserves the strip, so maximized windows start below it. Clicking the battery, Wi-Fi or volume icon opens Quick Settings, which lifts the taskbar above every always-on-top window for about 2 seconds; on the taskbar the pill was covered then. In the strip it stays visible. To put the pill back on the taskbar, set `HKCU\Software\Solarity\WidgetStrip` `Enabled` (DWORD) to 0.
+
 ## 1.5.5 (2026-11-20)
 
 **Added (Windows):** a warning when Claude Code's saved sign-in on this PC belongs to a different account than the one Claude Code shows as signed in, for example after the desktop app switched to another account while the saved sign-in kept the old one. The widget then showed another person's usage with no sign of it. The card now says so under *Check this*, with the fix: *Sign in again* with your own account. The check calls the profile endpoint at most every 10 minutes, or right after the sign-in file changes, and stores only a yes/no.

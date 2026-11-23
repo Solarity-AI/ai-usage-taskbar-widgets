@@ -211,6 +211,18 @@ Check 'Write-AtomicText: 3rd save persisted, no .tmp' (([IO.File]::ReadAllText($
 Check 'Pill fits 40px taskbar @125% (<=38px)' ((Get-PillFitHeight 40 1.25) * 1.25 -le 38 -and (Get-PillFitHeight 40 1.25) -ge 24) (Get-PillFitHeight 40 1.25)
 Check 'Pill stays 35 DIP on 48px taskbar @100%' ((Get-PillFitHeight 48 1.0) -eq 35) ''
 Check 'Pill stays 35 DIP on 60px taskbar @125%' ((Get-PillFitHeight 60 1.25) -eq 35) ''
+# The shared top strip (shared\WidgetStrip.cs): embedded verbatim, compiles, 40 DIP at the top of the primary monitor
+Check 'Pill fits the 50px top strip @125% (<=48px)' ((Get-PillFitHeight 50 1.25) * 1.25 -le 48 -and (Get-PillFitHeight 50 1.25) -ge 24) (Get-PillFitHeight 50 1.25)
+$stripCs = [IO.File]::ReadAllText((Join-Path (Split-Path $Dir) 'shared\WidgetStrip.cs')).Replace("`r`n", "`n").TrimEnd("`n")
+$widgetSrc = [IO.File]::ReadAllText($Widget).Replace("`r`n", "`n")
+Check 'WidgetStrip.cs embedded verbatim in the widget' ($widgetSrc.Contains("Add-Type -TypeDefinition @'`n" + $stripCs + "`n'@")) 'run tools\sync.ps1'
+if (-not ('SolarityWidgets.Strip' -as [type])) { Add-Type -TypeDefinition $stripCs }
+$mon = New-Object SolarityWidgets.Strip+RECT; $mon.Left = 0; $mon.Top = 0; $mon.Right = 1920; $mon.Bottom = 1200
+$sw = [SolarityWidgets.Strip]::Wanted($mon, 120)
+Check 'Strip is 40 DIP (50px @125%) across the top of the monitor' ($sw.Left -eq 0 -and $sw.Top -eq 0 -and $sw.Right -eq 1920 -and $sw.Bottom -eq 50) "$($sw.Left),$($sw.Top),$($sw.Right),$($sw.Bottom)"
+$sw = [SolarityWidgets.Strip]::Wanted($mon, 96)
+Check 'Strip is 40px @100%' ($sw.Bottom -eq 40) $sw.Bottom
+Check 'Strip widget finds no strip window it did not create' ([SolarityWidgets.Strip]::Hosting -eq $false) ''
 $now = [DateTime]::SpecifyKind([DateTime]'2026-11-12T12:00:00', 'Utc')
 $pw = [pscustomobject]@{ used = 61; window_seconds = 604800; resets_at = '2026-11-15T12:00:00Z' }
 Check 'Get-Left / Get-ResetText on Claude shape' ((Get-Left $pw) -eq 39 -and (Get-ResetText $pw.resets_at $now) -eq '3d 0h') ''
