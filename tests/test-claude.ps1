@@ -211,6 +211,15 @@ Check 'Write-AtomicText: 3rd save persisted, no .tmp' (([IO.File]::ReadAllText($
 Check 'Pill fits 40px taskbar @125% (<=38px)' ((Get-PillFitHeight 40 1.25) * 1.25 -le 38 -and (Get-PillFitHeight 40 1.25) -ge 24) (Get-PillFitHeight 40 1.25)
 Check 'Pill stays 35 DIP on 48px taskbar @100%' ((Get-PillFitHeight 48 1.0) -eq 35) ''
 Check 'Pill stays 35 DIP on 60px taskbar @125%' ((Get-PillFitHeight 60 1.25) -eq 35) ''
+# install.ps1 reads install-last.log while the task's transcript still holds it open for writing
+$iAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $Dir 'install.ps1'), [ref]$null, [ref]$null)
+$iAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Read-SharedText' }, $true) | ForEach-Object { . ([scriptblock]::Create($_.Extent.Text)) }
+$openLog = Join-Path $env:TEMP ('rs-' + [Guid]::NewGuid().ToString('N') + '.log')
+$fsHold = New-Object IO.FileStream($openLog, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+$bytes = [Text.Encoding]::UTF8.GetBytes("INSTALLER-EXIT:0`r`n"); $fsHold.Write($bytes, 0, $bytes.Length); $fsHold.Flush()
+$rsText = Read-SharedText $openLog
+$fsHold.Dispose(); Remove-Item -LiteralPath $openLog -Force
+Check 'installer reads its log while the transcript holds it open' ($rsText -match 'INSTALLER-EXIT:0') $rsText
 # The shared top strip (shared\WidgetStrip.cs): embedded verbatim, compiles, 40 DIP at the top of the primary monitor
 Check 'Pill fits the 50px top strip @125% (<=48px)' ((Get-PillFitHeight 50 1.25) * 1.25 -le 48 -and (Get-PillFitHeight 50 1.25) -ge 24) (Get-PillFitHeight 50 1.25)
 $stripCs = [IO.File]::ReadAllText((Join-Path (Split-Path $Dir) 'shared\WidgetStrip.cs')).Replace("`r`n", "`n").TrimEnd("`n")

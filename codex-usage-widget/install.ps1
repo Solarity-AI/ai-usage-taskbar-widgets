@@ -73,6 +73,16 @@ function Test-AppDataRedirected {
     finally { Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue }
 }
 
+function Read-SharedText {
+    # The task's transcript keeps install-last.log open for writing until it stops: read it with FileShare.ReadWrite
+    # (File.ReadAllText/ReadAllLines would fail with "being used by another process"). Returns '' when unreadable.
+    param([string]$Path)
+    try {
+        $fs = New-Object IO.FileStream($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+        try { return (New-Object IO.StreamReader($fs)).ReadToEnd() } finally { $fs.Dispose() }
+    } catch { return '' }
+}
+
 function Invoke-OutsideSandbox {
     # Re-runs this installer through a temporary on-demand scheduled task (runs as the signed-in user, no admin),
     # waits for it, prints its output and removes the task. Returns the installer's exit code.
@@ -92,7 +102,7 @@ function Invoke-OutsideSandbox {
             Start-Sleep -Milliseconds 800
             if (Test-Path -LiteralPath $log) {
                 $text = ''
-                try { $text = [IO.File]::ReadAllText($log) } catch { }
+                $text = Read-SharedText $log
                 $m = [regex]::Match($text, 'INSTALLER-EXIT:(\d+)')
                 if ($m.Success) { $code = [int]$m.Groups[1].Value }
             }
@@ -101,7 +111,7 @@ function Invoke-OutsideSandbox {
         try { Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction Stop } catch { }
     }
     if (Test-Path -LiteralPath $log) {
-        $lines = [IO.File]::ReadAllLines($log)
+        $lines = (Read-SharedText $log) -split "`r?`n"
         $stars = 0
         foreach ($l in $lines) {
             if ($l -match '^\*{10}') { $stars++; continue }                 # transcript header = stars 1-2, footer = 3-4
