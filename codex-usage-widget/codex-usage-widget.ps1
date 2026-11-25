@@ -2351,7 +2351,7 @@ function Add-LimitRow {
     $head = New-Object Windows.Controls.Grid
     $t = New-TextBlock $Label 12 $Theme.fgB 'SemiBold'
     $t.TextWrapping = 'NoWrap'; $t.TextTrimming = 'CharacterEllipsis'; $t.Margin = '0,0,64,0'
-    $v = New-TextBlock $(if ($null -eq $left) { 'unavailable' } else { ('{0} used' -f (Format-UsedShare (100.0 - $left))) }) 11.5 $Theme.dimB
+    $v = New-TextBlock $(if ($null -eq $left) { 'no reading yet' } else { ('{0} used' -f (Format-UsedShare (100.0 - $left))) }) 11.5 $Theme.dimB
     $v.HorizontalAlignment = 'Right'; $v.VerticalAlignment = 'Center'; $v.TextWrapping = 'NoWrap'
     [void]$head.Children.Add($t); [void]$head.Children.Add($v)
     [void]$panel.Children.Add($head)
@@ -2482,6 +2482,21 @@ function Update-PillVisual {
     [Windows.Automation.AutomationProperties]::SetName($ui.Pill, $st.a11y)
 }
 
+function Get-NoReadingText {
+    # The pill's short line when there is no reading to show: why, and what happens next. Never a bare
+    # "unavailable", which looks broken when the widget is only waiting (rate limit, sign-in, slow collector).
+    param($Data, [string]$Failure)
+    $code = $(if ($null -ne $Data -and $null -ne $Data.error) { [string]$Data.error.code } else { '' })
+    if ($code -match '^auth_' -or $code -eq 'http_401' -or $code -eq 'http_403') { return 'sign in needed' }
+    if ($code -eq 'http_429') { return 'rate limited, retrying' }
+    if ($code -match '^http_5\d\d$' -or $code -eq 'bad_response') { return 'service busy, retrying' }
+    if ($code -eq 'network') { return 'offline, retrying' }
+    if ($code -match '_missing$') { return 'setup needed' }
+    if ($Failure -match 'timed out') { return 'slow to answer, retrying' }
+    if ($Failure -match 'missing from|could not be started') { return 'reinstall needed' }
+    return 'waiting for data'
+}
+
 function Set-BoxColors {
     # Paints a tinted box (pace / status) with one of the theme's pace palettes.
     param($Box, $Palette, $Label, $Text, $Status = $null)
@@ -2512,7 +2527,7 @@ function Update-View {
                  subBrush = $T.pillDimB; tagBrush = $T.pillDimB; snoozed = $snoozed; stale = $false; fraction = $null; ring = $T.grayRingB }
         if ($null -eq $d) {
             $st.hero = $(if ($script:CollectorFailure) { [string][char]0x2014 } else { '...' })
-            $st.sub = $(if ($script:CollectorFailure) { 'unavailable' } else { 'loading' })
+            $st.sub = $(if ($script:CollectorFailure) { Get-NoReadingText $null $script:CollectorFailure } else { 'loading' })
             $st.a11y = "$($script:WindowTitle): $($st.sub)"
             $script:PillState = $st
             foreach ($p in @($script:Pills)) { Update-PillVisual $p }
@@ -2520,7 +2535,7 @@ function Update-View {
             $ui.CardHeroLabel.Text = $(if ($script:Refreshing) { "reading $($script:ProductName) usage..." } else { 'used this week' })
             foreach ($n in 'PlanBadge', 'PaceBox', 'SessionPaceBox', 'ChartPanel', 'PaceLines', 'TopDivider') { $ui[$n].Visibility = 'Collapsed' }
             $ui.StatusText.Text = $script:CollectorFailure
-            $ui.StatusLabel.Text = 'NOT AVAILABLE'
+            $ui.StatusLabel.Text = 'NO READING YET'
             Set-BoxColors $ui.StatusBar $T.pace.amber $ui.StatusLabel $ui.StatusText
             $ui.StatusBar.Visibility = $(if ($script:CollectorFailure) { 'Visible' } else { 'Collapsed' })
             $ui.FooterText.Text = 'Click to refresh ' + $dot + ' right-click for settings'
@@ -2550,7 +2565,7 @@ function Update-View {
         $reset = $(if ($null -ne $weekly) { Get-ResetText $weekly.resets_at $now } else { $null })
         $subRight = $(if ($reset) { 'weekly ' + $reset } else { $null })   # name the limit: the pill shows only one
         if ($null -eq $weekly) {
-            $subRight = $(if (@($d.reset_passed) -contains 'weekly') { 'reset, refreshing' } else { 'unavailable' })
+            $subRight = $(if (@($d.reset_passed) -contains 'weekly') { 'reset, refreshing' } else { Get-NoReadingText $d $script:CollectorFailure })
         } elseif (-not $subRight) { $subRight = 'reset unknown' }
         if ($bind.kind -eq 'session') { $subRight = ('{0}-hour {1}' -f [Math]::Round([double]$bind.window.window_seconds / 3600.0), (Get-ResetText $bind.window.resets_at $now)) }
         if ($needsSignIn) { $subRight = 'sign in needed'; $st.subBrush = $T.warnB }
@@ -2568,7 +2583,7 @@ function Update-View {
         $ui.CardHero.Text = $pct
         $ui.CardHero.Foreground = $T[$level + 'B']
         $ui.CardHeroLabel.Text = $(if ($bind.kind -eq 'session') { ('used in this {0}-hour session' -f [Math]::Round([double]$bind.window.window_seconds / 3600.0)) }
-                                   elseif ($null -eq $left) { 'weekly data unavailable' }
+                                   elseif ($null -eq $left) { 'no weekly reading yet' }
                                    elseif ($tag -eq 'claude') { "used this week $dot all models" } else { 'used this week' })
         if ($d.plan) {
             $ui.PlanText.Text = (Get-Culture).TextInfo.ToTitleCase(([string]$d.plan).ToLowerInvariant())

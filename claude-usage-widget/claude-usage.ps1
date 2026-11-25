@@ -83,7 +83,8 @@ $script:ScopedNames = @{
 function Get-Prop {
     param($Object, [string]$Name)
     if ($null -eq $Object) { return $null }
-    if ($Object -is [System.Collections.IDictionary]) { if ($Object.Contains($Name)) { return $Object[$Name] }; return $null }
+    # Keys, not .Contains(): a generic Dictionary (from ConvertFrom-JsonText) implements Contains only explicitly.
+    if ($Object -is [System.Collections.IDictionary]) { if (@($Object.Keys) -ccontains $Name) { return $Object[$Name] }; return $null }
     $p = $Object.PSObject.Properties[$Name]
     if ($null -ne $p) { return $p.Value }
     return $null
@@ -270,6 +271,19 @@ function Read-SharedText {
     } finally { $fs.Dispose() }
 }
 
+function ConvertFrom-JsonText {
+    # Windows PowerShell 5.1's ConvertFrom-Json refuses a document with keys that differ only in case, and Claude
+    # Code's .claude.json often has them (project paths "C:/Windows/System32" and "C:/Windows/system32"). That left
+    # the account unknown, so no reading was ever cached and every rate-limited poll showed no data.
+    # JavaScriptSerializer keeps such keys apart (case-sensitive dictionaries, which Get-Prop reads).
+    param([string]$Text)
+    try { return ($Text | ConvertFrom-Json) } catch { }
+    Add-Type -AssemblyName System.Web.Extensions
+    $s = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+    $s.MaxJsonLength = [int]::MaxValue
+    return $s.DeserializeObject($Text)
+}
+
 function Resolve-ClaudeHome {
     $configured = $env:CLAUDE_CONFIG_DIR
     if ($configured -and $configured.Trim().Length -gt 0) {
@@ -305,11 +319,16 @@ function Read-AuthContext {
     $cfgPath = $(if ($ClaudeHome.configured) { Join-Path $ClaudeHome.path '.claude.json' } else { Join-Path $env:USERPROFILE '.claude.json' })
     try {
         if (Test-Path -LiteralPath $cfgPath -PathType Leaf) {
-            $oa = Get-Prop ((Read-SharedText $cfgPath) | ConvertFrom-Json) 'oauthAccount'
+            $oa = Get-Prop (ConvertFrom-JsonText (Read-SharedText $cfgPath)) 'oauthAccount'
             $a = Get-Prop $oa 'accountUuid'; $org = Get-Prop $oa 'organizationUuid'
             if ($a -is [string] -and $a.Length -gt 0) { $account = "$a|$org"; $accountUuid = $a }
         }
     } catch { $account = $null }
+    if ($null -eq $account) {
+        # Newer Claude Code also stores the account next to the token: use it when .claude.json names none.
+        $a = Get-Prop $o 'accountUuid'; $org = Get-Prop $o 'organizationUuid'
+        if ($a -is [string] -and $a.Length -gt 0) { $account = "$a|$org"; $accountUuid = $a }
+    }
     $ctx = @{ ok = $true; access = $access; account = $account; accountUuid = $accountUuid; plan = $(if ($plan -is [string] -and $plan.Length -gt 0) { $plan } else { $null }); expired = $false }
     if ($null -ne $exp -and $exp -le $script:Now.AddSeconds(30)) {
         $ctx.expired = $true

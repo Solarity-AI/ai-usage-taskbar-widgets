@@ -2,7 +2,11 @@
 
 Each release is listed here, newest first. The version is `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1` and `appVersion` in `macos/Sources/Core.swift`; tagging `v<version>` publishes it as a GitHub release with downloadable zips.
 
-## 1.6.0 (2026-11-22)
+## 1.6.0 (2026-11-25)
+
+**Fixed (Windows):** the Claude pill showed *unavailable* whenever the usage service was rate limiting. Windows PowerShell could not read Claude Code's `.claude.json` when it held two project paths that differ only in case (for example `C:/Windows/System32` and `C:/Windows/system32`), so the collector never knew the account and never saved a reading; every poll during a rate limit then had nothing to show. It now reads such files and keeps the last reading.
+
+**Changed (Windows):** with no reading yet, the pill says why and that it retries (*rate limited, retrying*, *sign in needed*, *offline, retrying*, *slow to answer, retrying*, *waiting for data*) instead of *unavailable*.
 
 **Changed (Windows):** the pill now sits in a thin strip across the top of the main screen (40 DIP, 50 px at 125%), shared by every Solarity widget, instead of on the taskbar. Windows reserves the strip, so maximized windows start below it. Clicking the battery, Wi-Fi or volume icon opens Quick Settings, which lifts the taskbar above every always-on-top window for about 2 seconds; on the taskbar the pill was covered then. In the strip it stays visible. To put the pill back on the taskbar, set `HKCU\Software\Solarity\WidgetStrip` `Enabled` (DWORD) to 0.
 
