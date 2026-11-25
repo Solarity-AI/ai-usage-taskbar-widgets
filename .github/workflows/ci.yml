@@ -2,10 +2,9 @@ name: CI
 
 # Windows widgets: generated files, links, packaging and both test suites. The macOS app has its own
 # workflow (macos.yml), so changes only under macos/ skip this one.
+# Org rules: pull requests and manual runs only (no push, no schedule). Hosted runner on purpose: this repo is public,
+# the org's self-hosted runners do not take public-repo jobs, and fork pull requests must not run on owner machines.
 on:
-  push:
-    branches: [main]
-    paths-ignore: ['macos/**']
   pull_request:
     paths-ignore: ['macos/**']
   workflow_dispatch:
@@ -15,7 +14,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -23,12 +22,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Generated files, BOMs, parse check and both test suites
-        shell: powershell
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1
-      - name: PSScriptAnalyzer gate
+      - name: Install PSScriptAnalyzer
         shell: powershell
         run: |
           Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Scope CurrentUser -Force | Out-Null
           Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force -Repository PSGallery
-          powershell -NoProfile -ExecutionPolicy Bypass -File tools\lint.ps1
+      - name: Verify (generated files, BOMs, links, packaging, both test suites, PSScriptAnalyzer)
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify.ps1

@@ -115,11 +115,12 @@ The two widgets share one codebase. `claude-usage-widget\` is the source. In `co
 |---|---|
 | `powershell -NoProfile -ExecutionPolicy Bypass -File tools\sync.ps1` | Regenerates the Codex widget, installer, uninstaller and watchdog from the Claude ones; checks that every script parses and has a UTF-8 BOM |
 | `powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1` | Builds the release zips and checksums in `dist\`; checks that the version matches `CHANGELOG.md` |
-| `powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1` | What CI runs: `sync.ps1 -Check`, the version and packaging check, then both test suites (simulated: fake sign-ins and CLIs, no network) |
+| `powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify.ps1` | What CI runs: `tests\run-tests.ps1`, then `tools\lint.ps1` (lint is skipped with a warning when PSScriptAnalyzer is missing locally) |
+| `powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1` | The tests alone: `sync.ps1 -Check`, the version and packaging check, then both test suites (simulated: fake sign-ins and CLIs, no network) |
 | `powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1 -Suite Claude` | The same shared checks, then only the Claude suite (`-Suite Codex` for the Codex one) |
 | `powershell -NoProfile -ExecutionPolicy Bypass -File tools\lint.ps1` | PSScriptAnalyzer with `PSScriptAnalyzerSettings.psd1` (CI runs it too); needs `Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser` once |
 
-Edit the Claude files, run `tools\sync.ps1`, then `tests\run-tests.ps1`. Exit an installed widget (right-click › Exit) before running tests from a checkout. Scripts must stay compatible with Windows PowerShell 5.1 and saved as UTF-8 with BOM.
+Edit the Claude files, run `tools\sync.ps1`, then `tools\verify.ps1`. Exit an installed widget (right-click › Exit) before running tests from a checkout. Scripts must stay compatible with Windows PowerShell 5.1 and saved as UTF-8 with BOM.
 
 The macOS app lives in `macos/` (Swift, built with the Command Line Tools, no Xcode). Run these on a Mac:
 
