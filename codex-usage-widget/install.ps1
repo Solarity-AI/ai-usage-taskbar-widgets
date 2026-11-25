@@ -261,11 +261,11 @@ try {
 } finally { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell) }
 
 # Watchdog: a per-user task (no admin) that every 5 minutes restarts the widget if it died or hung, unless you chose
-# Exit or turned off Start with Windows. Windows 11 runs it in a headless console, so no window flashes.
+# Exit or turned off Start with Windows. Windows 10 2004 (build 19041) and later run it in a headless console, so no window flashes.
 try {
     $wdArgs = ('-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}"' -f (Join-Path $InstallDir 'watchdog.ps1'))
     $conhost = Join-Path $env:SystemRoot 'System32\conhost.exe'
-    if ([Environment]::OSVersion.Version.Build -ge 22000 -and (Test-Path -LiteralPath $conhost)) {
+    if ([Environment]::OSVersion.Version.Build -ge 19041 -and (Test-Path -LiteralPath $conhost)) {
         $wdAction = New-ScheduledTaskAction -Execute $conhost -Argument ('--headless "{0}" {1}' -f $PsExe, $wdArgs) -WorkingDirectory $InstallDir
     } else {
         $wdAction = New-ScheduledTaskAction -Execute $PsExe -Argument $wdArgs -WorkingDirectory $InstallDir
