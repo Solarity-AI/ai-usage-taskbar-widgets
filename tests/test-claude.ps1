@@ -382,6 +382,17 @@ $q4 = Run @('-TestNowUnix', [string]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds(
 Check 'QA-04: 5xx backoff -> reading from Claude Code /usage, not stale' ($q4.json.source -eq 'cli' -and $q4.json.stale -eq $false -and $q4.diag -match 'backoff' -and $q4.json.notice -match 'unavailable') "$($q4a.diag) || $($q4.diag) | $($q4.json.source)"
 $u4 = Run @('-TestHttpStatus', '429', '-Force', '-NoRenew') $cfg $fakeUsage
 Check '-NoRenew also disables the /usage fallback' ($u4.json.source -ne 'cli') $u4.diag
+# The real .claude.json often holds keys that differ only in case (project paths), which Windows PowerShell's
+# ConvertFrom-Json refuses: the account must still be known, so the reading is cached and the next poll has data.
+$dupHome = Join-Path $Root 'dup-home'; [void](New-Item -ItemType Directory -Path $dupHome -Force)
+Copy-Item (Join-Path $cfg '.credentials.json') $dupHome
+[IO.File]::WriteAllText((Join-Path $dupHome '.claude.json'), '{"projects":{"C:/Windows/System32":{},"C:/Windows/system32":{}},"oauthAccount":{"accountUuid":"fixture-acct-A","organizationUuid":"fixture-org"}}', $utf8)
+$keepCache = $cache; $cache = Join-Path $Root 'dup-cache\usage-cache.json'
+try {
+    $dp1 = Run @('-TestHttpStatus', '429', '-Force') $dupHome $fakeUsage
+    $dp2 = Run @('-TestHttpStatus', '429', '-Force') $dupHome $fakeFail   # CLI not run again within 3 min
+} finally { $cache = $keepCache }
+Check 'case-duplicate keys in .claude.json: reading cached, next poll still has data' ($dp1.json.source -eq 'cli' -and (Test-Path (Join-Path $Root 'dup-cache\usage-cache.json')) -and $dp2.json.source -eq 'cli' -and $dp2.json.weekly.used -eq 29) "$($dp1.diag) || $($dp2.diag)"
 
 # ---- settings
 $sd = ConvertTo-Settings $null 120
@@ -618,6 +629,17 @@ $otherR = New-Object UsageWidget.RECT; $otherR.Left = 1536; $otherR.Top = 816; $
 Check 'taskbar click: a taskbar raised over a pill is detected' ([UsageWidget.Native]::TaskbarCovers([string[]]@('#32768', 'Shell_TrayWnd'), [UsageWidget.RECT[]]@($menuR, $barR), $pillR)) ''
 Check 'taskbar click: menus over a pill and other monitors'' taskbars are left alone' (-not [UsageWidget.Native]::TaskbarCovers([string[]]@('#32768', 'Shell_SecondaryTrayWnd'), [UsageWidget.RECT[]]@($menuR, $otherR), $pillR)) ''
 Check 'full screen: a game, video or the lock screen still hides them' (-not [UsageWidget.Native]::IsShellSurface('UnityWndClass', 'game') -and -not [UsageWidget.Native]::IsShellSurface('Chrome_WidgetWin_1', 'chrome') -and -not [UsageWidget.Native]::IsShellSurface('Windows.UI.Core.CoreWindow', 'LockApp')) ''
+
+# ---- no reading: the pill says why and that it retries, never a bare "unavailable"
+foreach ($f in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-NoReadingText' }, $true)) { . ([scriptblock]::Create($f.Extent.Text)) }
+$nr = @{
+    'http_429' = (Get-NoReadingText ([pscustomobject]@{ error = [pscustomobject]@{ code = 'http_429' } }) $null)
+    'auth_expired' = (Get-NoReadingText ([pscustomobject]@{ error = [pscustomobject]@{ code = 'auth_expired' } }) $null)
+    'http_503' = (Get-NoReadingText ([pscustomobject]@{ error = [pscustomobject]@{ code = 'http_503' } }) $null)
+    'network' = (Get-NoReadingText ([pscustomobject]@{ error = [pscustomobject]@{ code = 'network' } }) $null)
+    'timeout' = (Get-NoReadingText $null 'The local collector timed out.')
+    'none' = (Get-NoReadingText $null $null) }
+Check 'no reading: rate limit, sign-in, outage, offline and timeout each named; none says unavailable' ($nr['http_429'] -match 'rate limited' -and $nr['auth_expired'] -match 'sign in' -and $nr['http_503'] -match 'retrying' -and $nr['network'] -match 'offline' -and $nr['timeout'] -match 'retrying' -and @($nr.Values | Where-Object { $_ -match 'unavailable' -or -not $_ }).Count -eq 0) (($nr.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join '; ')
 
 $results | Format-Table -AutoSize -Wrap | Out-String -Width 220
 "PASS={0} FAIL={1}" -f @($results | Where-Object Result -eq 'PASS').Count, @($results | Where-Object Result -eq 'FAIL').Count
