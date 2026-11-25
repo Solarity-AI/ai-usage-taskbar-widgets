@@ -138,8 +138,8 @@ The macOS app lives in `macos/` (Swift, built with the Command Line Tools, no Xc
 
 The **Release** workflow tests again, builds the three zips and `SHA256SUMS.txt` (`tools\package.ps1`), and publishes the release with that version's changelog section as its notes.
 
-## Copyright
+## License
 
-© Solarity AI LLC. All rights reserved. See [LICENSE](LICENSE).
+Free to download and use, personally or inside your organization, under the [Solarity AI Use License](LICENSE). Selling, redistributing or publishing modified versions needs written permission from Solarity AI LLC.
 
 Not affiliated with Anthropic or OpenAI; Claude and Codex are their respective trademarks.
