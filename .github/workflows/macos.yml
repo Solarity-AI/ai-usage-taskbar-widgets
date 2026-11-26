@@ -10,6 +10,12 @@ on:
 permissions:
   contents: read
 
+# A new push to the same pull request cancels the older macOS run. Only pull_request and
+# workflow_dispatch start this workflow, so no main-branch run is ever cancelled.
+concurrency:
+  group: macos-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   macos:
     name: macOS app
