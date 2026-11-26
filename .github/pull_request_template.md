@@ -12,6 +12,6 @@ Fixes #
      Never paste tokens, .credentials.json, auth.json or an email address. -->
 
 ```
-command: powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify.ps1
+command: powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify.ps1
 result:
 ```
