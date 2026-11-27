@@ -301,6 +301,7 @@ $rl = Format-ResetLine '2026-11-15T12:00:00Z' $now
 Check 'reset line: "Resets Sun 15 Nov, HH:mm · in 3d 0h" (no break inside the span)' ($rl -match ("^Resets \w{3} \d{1,2} \w{3}, \d\d:\d\d $dotc in 3d" + [char]0x00A0 + '0h$')) $rl
 Check 'reset line: past -> reset due; unknown -> nothing' ((Format-ResetLine '2026-11-01T00:00:00Z' $now) -like 'Reset due*' -and $null -eq (Format-ResetLine $null $now)) ''
 Check 'row labels match the card: weekly / session / per-model' ((Get-WindowLabel 'weekly' $null 604800 'claude') -eq "Weekly $dotc all models" -and (Get-WindowLabel 'weekly' $null 604800 'codex') -eq 'Weekly limit' -and (Get-WindowLabel 'session' $null 18000 'claude') -eq "Current session $dotc 5 hours" -and (Get-WindowLabel 'weekly' 'Fable' 604800 'claude') -eq "Weekly $dotc Fable") ''
+Check 'row labels: Antigravity names the Gemini pool, keeps a scoped name that names its window' ((Get-WindowLabel 'weekly' $null 604800 'antigravity') -eq "Gemini $dotc week" -and (Get-WindowLabel 'session' $null 18000 'antigravity') -eq "Gemini $dotc 5 hours" -and (Get-WindowLabel 'weekly' "Claude and GPT $dotc week" 604800 'antigravity') -eq "Claude and GPT $dotc week" -and (Get-WindowLabel 'session' "Claude and GPT $dotc 5 hours" 18000 'antigravity') -eq "Claude and GPT $dotc 5 hours") ''
 Check 'used share: "<1%" for a trace, whole numbers otherwise' ((Format-UsedShare 0.3) -eq '<1%' -and (Format-UsedShare 44.5) -eq '45%' -and (Format-UsedShare 0) -eq '0%') ''
 # QA-02 / 05 / 07 regressions
 $q2now = [DateTime]::SpecifyKind([DateTime]'2026-11-18T03:20:00', 'Utc')
@@ -638,8 +639,9 @@ $nr = @{
     'http_503' = (Get-NoReadingText ([pscustomobject]@{ error = [pscustomobject]@{ code = 'http_503' } }) $null)
     'network' = (Get-NoReadingText ([pscustomobject]@{ error = [pscustomobject]@{ code = 'network' } }) $null)
     'timeout' = (Get-NoReadingText $null 'The local collector timed out.')
-    'none' = (Get-NoReadingText $null $null) }
-Check 'no reading: rate limit, sign-in, outage, offline and timeout each named; none says unavailable' ($nr['http_429'] -match 'rate limited' -and $nr['auth_expired'] -match 'sign in' -and $nr['http_503'] -match 'retrying' -and $nr['network'] -match 'offline' -and $nr['timeout'] -match 'retrying' -and @($nr.Values | Where-Object { $_ -match 'unavailable' -or -not $_ }).Count -eq 0) (($nr.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join '; ')
+    'none' = (Get-NoReadingText $null $null)
+    'antigravity_closed' = (Get-NoReadingText ([pscustomobject]@{ error = [pscustomobject]@{ code = 'antigravity_closed' } }) $null) }
+Check 'no reading: rate limit, sign-in, outage, offline and timeout each named; none says unavailable' ($nr['http_429'] -match 'rate limited' -and $nr['auth_expired'] -match 'sign in' -and $nr['http_503'] -match 'retrying' -and $nr['network'] -match 'offline' -and $nr['timeout'] -match 'retrying' -and $nr['antigravity_closed'] -eq 'open Antigravity' -and @($nr.Values | Where-Object { $_ -match 'unavailable' -or -not $_ }).Count -eq 0) (($nr.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join '; ')
 
 $results | Format-Table -AutoSize -Wrap | Out-String -Width 220
 "PASS={0} FAIL={1}" -f @($results | Where-Object Result -eq 'PASS').Count, @($results | Where-Object Result -eq 'FAIL').Count

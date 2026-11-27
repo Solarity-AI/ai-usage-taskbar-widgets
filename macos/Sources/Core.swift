@@ -4,7 +4,7 @@
 import CryptoKit
 import Foundation
 
-let appVersion = "1.6.0"
+let appVersion = "1.7.0"
 let weekSeconds: Double = 604_800
 let sessionSeconds: Double = 18_000
 let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!

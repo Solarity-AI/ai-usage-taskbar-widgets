@@ -2,6 +2,10 @@
 
 Each release is listed here, newest first. The version is `$script:Version` in `claude-usage-widget\claude-usage-widget.ps1` and `appVersion` in `macos/Sources/Core.swift`; tagging `v<version>` publishes it as a GitHub release with downloadable zips.
 
+## 1.7.0 (2026-11-26)
+
+**Added (Windows):** an Antigravity widget, a third pill next to the Codex pill (or the Claude pill). It shows Antigravity's 2 separate allowances: the ring, the weekly bar and the 5-hour bar show the Gemini pool, and the card has 2 more rows for the Claude and GPT pool (*Claude and GPT · week*, *Claude and GPT · 5 hours*). It reads Antigravity's own local language server on `127.0.0.1`, so Antigravity must be running; while it is closed the pill keeps the last reading and says *open Antigravity*. The local token is read per poll and never logged or cached. Install it with **Install Antigravity widget.cmd**. There is no macOS version.
+
 ## 1.6.0 (2026-11-25)
 
 **Fixed (Windows):** the Claude pill showed *unavailable* whenever the usage service was rate limiting. Windows PowerShell could not read Claude Code's `.claude.json` when it held two project paths that differ only in case (for example `C:/Windows/System32` and `C:/Windows/system32`), so the collector never knew the account and never saved a reading; every poll during a rate limit then had nothing to show. It now reads such files and keeps the last reading.

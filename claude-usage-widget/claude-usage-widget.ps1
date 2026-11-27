@@ -7,8 +7,8 @@
     pace forecast. Hover for details, click to pin the card, right-click for the menu (settings live there),
     drag the main pill horizontally to move it.
 
-    The Claude and Codex widgets are the same script: only the "product" block below differs (the Codex file
-    is generated from this one). Data comes only from the local collector next to this script, run in a
+    The Claude, Codex and Antigravity widgets are the same script: only the "product" block below differs (the
+    Codex and Antigravity files are generated from this one). Data comes only from the local collector next to this script, run in a
     separate hidden Windows PowerShell 5.1 process so the UI thread never blocks. No servers, no telemetry.
 
     Local files (in %LOCALAPPDATA%\<AppName>): settings.json, history.json (time, % used, reset time, credit /
@@ -21,14 +21,14 @@
 #>
 $ErrorActionPreference = 'Stop'
 
-# >>> product (everything else in this file is identical in both widgets)
+# >>> product (everything else in this file is identical in every widget)
 $script:ProductKey    = 'claude'
 $script:ProductName   = 'Claude'
 $script:AppName       = 'ClaudeUsageWidget'
 $script:CollectorName = 'claude-usage.ps1'
 $script:UsageUrl      = 'https://claude.ai/settings/usage'
 $script:WindowTitle   = 'Claude usage'
-$script:AnchorTitle   = $null    # this IS the Claude pill: no anchor (the Codex widget anchors to it)
+$script:AnchorTitle   = $null    # this IS the Claude pill: no anchor (the Codex and Antigravity widgets anchor to it)
 $script:DefaultPollSeconds = 120 # Claude's usage service rate-limits frequent polling
 $script:Accent        = '#D97757' # product accent (card mark, pill dot, menu checks)
 $script:MarkText      = 'C'
@@ -62,7 +62,7 @@ $script:ExitMarkerPath = Join-Path $script:AppDir 'exited-by-user'  # left by Ex
 $script:CollectorPath = Join-Path $PSScriptRoot $script:CollectorName
 $script:UninstallPath = Join-Path $PSScriptRoot 'uninstall.ps1'
 $script:ShortcutPath  = Join-Path ([Environment]::GetFolderPath('Startup')) ('{0} Usage Widget.lnk' -f $script:ProductName)
-$script:Version       = '1.6.0'          # release version (tools\package.ps1 and the release workflow check it)
+$script:Version       = '1.7.0'          # release version (tools\package.ps1 and the release workflow check it)
 $script:HomeUrl       = 'https://solarity-ai.github.io/ai-usage-taskbar-widgets/'
 $script:CollectorTimeoutSeconds = 120   # the collector may run the official CLI
 $script:AnchorGapPx   = 8               # physical pixels between neighbouring pills / the notification area
@@ -340,11 +340,18 @@ function Get-BindingLimit {
 
 function Get-WindowLabel {
     # Row title for a limit window: "Weekly · all models", "Current session · 5 hours", "Weekly · Fable".
+    # Antigravity: its main limits are the Gemini pool ("Gemini · week", "Gemini · 5 hours"); a scoped name that
+    # already names its window ("Claude and GPT · week") is shown as it is.
     param([string]$Kind, [string]$Name = $null, $WindowSeconds = $null, [string]$Product = 'claude')
     $dot = [string][char]0x00B7
     $hours = $(if ($null -ne $WindowSeconds -and [double]$WindowSeconds -gt 0) { [Math]::Round([double]$WindowSeconds / 3600.0) } else { 5 })
     if ($Name) {
+        if ($Name.Contains($dot)) { return $Name }
         switch ($Kind) { 'weekly' { return "Weekly $dot $Name" } 'session' { return "Session $dot $Name" } default { return $Name } }
+    }
+    if ($Product -eq 'antigravity') {
+        if ($Kind -eq 'session') { return ('Gemini {0} {1} hours' -f $dot, $hours) }
+        return "Gemini $dot week"
     }
     if ($Kind -eq 'session') { return ('Current session {0} {1} hours' -f $dot, $hours) }
     if ($Product -eq 'claude') { return "Weekly $dot all models" }
@@ -800,7 +807,7 @@ function Add-WindowSample {
 }
 
 function Get-SpendValue {
-    # Codex: credit balance; Claude: extra-usage % of the monthly limit. $null when not available.
+    # Codex: credit balance; Claude: extra-usage % of the monthly limit; Antigravity: none. $null when not available.
     param($Data)
     if ($null -ne $Data.credits -and $null -ne $Data.credits.balance) { return [double]$Data.credits.balance }
     $ex = $Data.extra_usage
@@ -1725,16 +1732,20 @@ function Get-TrayRect {
 }
 
 function Find-AnchorPill {
-    # Visible anchor pill ("Claude usage", for the Codex widget) on the given taskbar that is not ours.
+    # Visible anchor pill on the given taskbar that is not ours: "Claude usage" for the Codex widget; for the
+    # Antigravity widget "Codex usage", else "Claude usage" (AnchorTitle may list several titles: first visible wins).
     param($BarRect)
     if (-not $script:AnchorTitle) { return $null }
-    $cands = @([UsageWidget.Native]::FindVisibleByTitle($script:AnchorTitle) | Where-Object { $_.Pid -ne $PID })
-    if ($cands.Count -eq 0) { return $null }
-    if ($null -ne $BarRect) {
-        $cands = @($cands | Where-Object { $_.Left -lt $BarRect.Right -and $_.Right -gt $BarRect.Left -and $_.Top -lt $BarRect.Bottom -and $_.Bottom -gt $BarRect.Top })
-        if ($cands.Count -eq 0) { return $null }
+    foreach ($title in @($script:AnchorTitle)) {
+        $cands = @([UsageWidget.Native]::FindVisibleByTitle($title) | Where-Object { $_.Pid -ne $PID })
+        if ($cands.Count -eq 0) { continue }
+        if ($null -ne $BarRect) {
+            $cands = @($cands | Where-Object { $_.Left -lt $BarRect.Right -and $_.Right -gt $BarRect.Left -and $_.Top -lt $BarRect.Bottom -and $_.Bottom -gt $BarRect.Top })
+            if ($cands.Count -eq 0) { continue }
+        }
+        return ($cands | Sort-Object { $_.Bottom - $_.Top } | Select-Object -First 1)
     }
-    return ($cands | Sort-Object { $_.Bottom - $_.Top } | Select-Object -First 1)
+    return $null
 }
 
 function Get-TaskbarCenteredY {
@@ -1796,7 +1807,7 @@ function Get-TargetPosition {
         if ($null -ne $cy) { $y = $cy }
         $cx = Get-ClearX $x $y $W $H $tray $anchor
         if ((Test-PointOnMonitor ($cx + [int]($W / 2)) ($y + [int]($H / 2)))) {
-            $note = $(if ($cx -ne $x) { 'Moved left so it does not cover the notification area or the Claude pill.' } else { $null })
+            $note = $(if ($cx -ne $x) { 'Moved left so it does not cover the notification area or the usage pill beside it.' } else { $null })
             return @{ x = $cx; y = $y; mode = 'manual'; note = $note }
         }
     }
@@ -1816,7 +1827,7 @@ function Get-TargetPosition {
         if ($x -ge $mon.Left) { return @{ x = $x; y = $y; mode = 'anchor'; note = $null } }
         # Not enough room to the left: sit just above the anchor instead of covering it.
         return @{ x = [Math]::Max($mon.Left, $anchor.Right - $W); y = $anchor.Top - $script:AnchorGapPx - $H; mode = 'anchor-above'
-                  note = 'Not enough room left of the Claude widget; placed above it.' }
+                  note = 'Not enough room left of the usage pill beside it; placed above it.' }
     }
     # 3) left of the notification area (main taskbar) / near the right end (other taskbars, which keep a clock there)
     if ($horizontal) {
@@ -1854,7 +1865,7 @@ function Get-PillTag {
     # The product name sits after the percentage on the top line, so the second line holds only the status
     # and the pill stays narrow. Compact mode shows the number alone.
     if ($script:Settings.compact) { return '' }
-    return ' ' + $script:ProductKey
+    return ' ' + $script:ProductKey   # "claude", "codex", "antigravity"
 }
 
 function Set-PillWidth {
@@ -2257,6 +2268,8 @@ function Find-BundledClaudeCli {
 
 function Find-SignInCli {
     # The official CLI's interactive sign-in for this product: claude "auth login" / codex "login".
+    # Antigravity has no sign-in command: it signs in inside the Antigravity app (the menu item is hidden).
+    if ($script:ProductKey -eq 'antigravity') { return $null }
     if ($script:ProductKey -eq 'claude') {
         $c = Join-Path $env:USERPROFILE '.local\bin\claude.exe'
         if (Test-Path -LiteralPath $c -PathType Leaf) { return @{ exe = $c; args = 'auth login'; name = 'Claude Code' } }
@@ -2487,6 +2500,7 @@ function Get-NoReadingText {
     # "unavailable", which looks broken when the widget is only waiting (rate limit, sign-in, slow collector).
     param($Data, [string]$Failure)
     $code = $(if ($null -ne $Data -and $null -ne $Data.error) { [string]$Data.error.code } else { '' })
+    if ($code -eq 'antigravity_closed') { return 'open Antigravity' }
     if ($code -match '^auth_' -or $code -eq 'http_401' -or $code -eq 'http_403') { return 'sign in needed' }
     if ($code -eq 'http_429') { return 'rate limited, retrying' }
     if ($code -match '^http_5\d\d$' -or $code -eq 'bad_response') { return 'service busy, retrying' }
@@ -2584,7 +2598,7 @@ function Update-View {
         $ui.CardHero.Foreground = $T[$level + 'B']
         $ui.CardHeroLabel.Text = $(if ($bind.kind -eq 'session') { ('used in this {0}-hour session' -f [Math]::Round([double]$bind.window.window_seconds / 3600.0)) }
                                    elseif ($null -eq $left) { 'no weekly reading yet' }
-                                   elseif ($tag -eq 'claude') { "used this week $dot all models" } else { 'used this week' })
+                                   elseif ($tag -eq 'claude') { "used this week $dot all models" } elseif ($tag -eq 'antigravity') { "used this week $dot Gemini" } else { 'used this week' })
         if ($d.plan) {
             $ui.PlanText.Text = (Get-Culture).TextInfo.ToTitleCase(([string]$d.plan).ToLowerInvariant())
             $ui.PlanBadge.Visibility = 'Visible'
@@ -2795,6 +2809,11 @@ function Initialize-Menu {
     $m.MenuRefresh.add_Click({ $script:ManualRefresh = $true; Start-Refresh $true; Update-View })
     $m.MenuOpen.add_Click({ try { Start-Process $script:UsageUrl } catch { Write-Log 'could not open usage page' } })
     $m.MenuSignIn.add_Click({ Start-SignIn })
+    if ($script:ProductKey -eq 'antigravity') {
+        # Antigravity has no web usage page and no sign-in command: the link opens its plans page.
+        $m.MenuOpen.Header = '_Open Antigravity plans page'
+        $m.MenuSignIn.Visibility = 'Collapsed'
+    }
     foreach ($pair in @(@('MenuSnooze1h', '1h'), @('MenuSnoozeMorning', 'morning'), @('MenuSnoozeReset', 'reset'), @('MenuSnoozeOff', 'off'))) {
         $m[$pair[0]].Tag = $pair[1]
         $m[$pair[0]].add_Click({

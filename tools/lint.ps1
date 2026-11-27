@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Import-Module PSScriptAnalyzer
 $settings = Join-Path $root 'PSScriptAnalyzerSettings.psd1'
-$files = Get-ChildItem -Path (Join-Path $root 'claude-usage-widget'), (Join-Path $root 'codex-usage-widget'), (Join-Path $root 'tools'), (Join-Path $root 'tests') -Filter '*.ps1' -Recurse
+$files = Get-ChildItem -Path (Join-Path $root 'claude-usage-widget'), (Join-Path $root 'codex-usage-widget'), (Join-Path $root 'antigravity-usage-widget'), (Join-Path $root 'tools'), (Join-Path $root 'tests') -Filter '*.ps1' -Recurse
 $found = @($files | ForEach-Object { Invoke-ScriptAnalyzer -Path $_.FullName -Settings $settings })
 foreach ($f in $found) { Write-Host ('FAIL {0}:{1} {2}: {3}' -f $f.ScriptName, $f.Line, $f.RuleName, $f.Message) }
 if ($found.Count -gt 0) { Write-Host "$($found.Count) PSScriptAnalyzer finding(s)."; exit 1 }
