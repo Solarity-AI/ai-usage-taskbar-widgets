@@ -6,7 +6,7 @@
 [![Windows 10 and 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4)](#requirements)
 [![macOS 13+](https://img.shields.io/badge/macOS-13%2B-555555)](macos/README.md)
 
-See how much of your weekly **Claude** and **Codex** allowance is used, and when it runs out at your current pace, right on the Windows taskbar. A native **macOS menu-bar app** covers Claude on a Mac. Everything runs on your own computer: no server, no telemetry, nothing to sign up for.
+See how much of your weekly **Claude**, **Codex** and **Antigravity** allowance is used, and when it runs out at your current pace, right on the Windows taskbar. A native **macOS menu-bar app** covers Claude on a Mac. Everything runs on your own computer: no server, no telemetry, nothing to sign up for.
 
 **[Website](https://solarity-ai.github.io/ai-usage-taskbar-widgets/)** · **[Download the latest release](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest)** · **[Mac version](macos/README.md)** · [Changelog](CHANGELOG.md)
 
@@ -21,7 +21,7 @@ See how much of your weekly **Claude** and **Codex** allowance is used, and when
 
 ## Quick start
 
-- **Windows:** download [**ai-usage-taskbar-widgets.zip**](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest/download/ai-usage-taskbar-widgets.zip), unzip it, double-click **Install Claude widget.cmd** and/or **Install Codex widget.cmd**. Details in [Install](#install).
+- **Windows:** download [**ai-usage-taskbar-widgets.zip**](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest/download/ai-usage-taskbar-widgets.zip), unzip it, double-click **Install Claude widget.cmd**, **Install Codex widget.cmd** and/or **Install Antigravity widget.cmd**. Details in [Install](#install).
 - **macOS 13+:** clone this repo and run `./macos/install.sh` in Terminal. Details in [macos/README.md](macos/README.md#install).
 
 ## What you get
@@ -30,7 +30,8 @@ See how much of your weekly **Claude** and **Codex** allowance is used, and when
 - **A card on hover.** It shows the share used and 2 pace boxes, *Pace this week* and *Pace this 5-hour session*: *On pace*, *Cutting close* or *Too fast*, with the time each limit runs out at your current rate (*No session* when no 5-hour session is running). It also has a bar for every limit (weekly, 5-hour session, per-model limits) with its reset time, plus credits or extra usage when your plan has them. Click the pill to pin the card and refresh it.
 - **Alerts.** Windows notifications fire at 75% and 90% used, when the limit is reached, and when you are on track to run out before the reset. Thresholds are adjustable, and alerts can be snoozed for 1 hour, until tomorrow morning or until the weekly reset.
 - **A right-click menu.** It has *Refresh now*, *Open usage page*, *Sign in again*, *Snooze alerts*, *Alerts*, *Pill shows*, *Refresh every*, *Compact pill*, *Show details* (a burn-up chart of the week and the full pace breakdown), *Show on every taskbar*, *Reset position*, *Start with Windows*, *Open data folder*, *Uninstall*, *About* (version and website) and *Exit*.
-- **Light and dark themes**, following Windows. Per-monitor DPI. The pills hide while a full-screen app is in front. Drag the main pill sideways to move it; the Codex pill sits next to the Claude pill.
+- **Light and dark themes**, following Windows. Per-monitor DPI. The pills hide while a full-screen app is in front. Drag the main pill sideways to move it; the Codex pill sits next to the Claude pill, and the Antigravity pill next to the Codex pill (or the Claude pill).
+- **Antigravity's 2 pools.** Antigravity has 2 separate allowances. The ring, the main weekly bar and the 5-hour bar show the **Gemini** pool; the **Claude and GPT** pool gets its own 2 rows on the card (*Claude and GPT · week* and *Claude and GPT · 5 hours*).
 
 <p>
   <img src="docs/images/claude-light-card.png" width="300" alt="The Claude card in the light theme">
@@ -42,15 +43,16 @@ See how much of your weekly **Claude** and **Codex** allowance is used, and when
 - Windows 10 or 11, with the built-in **Windows PowerShell 5.1**. Nothing to install, no admin rights.
 - **Claude widget:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) signed in on this PC with a Claude subscription (Pro, Max, Team or Enterprise).
 - **Codex widget:** the Codex app or CLI signed in on this PC with a ChatGPT plan.
+- **Antigravity widget:** [Antigravity](https://antigravity.google/) signed in and **running** on this PC. The widget asks Antigravity's own local language server, so while Antigravity is closed the card keeps the last reading, marked as not up to date, and says to open Antigravity (with no reading yet the pill says *open Antigravity*).
 
-Install one widget or both; they are independent.
+Install any of the widgets; they are independent.
 
-**On a Mac?** The Claude widget also comes as a native menu-bar app: see [macos/README.md](macos/README.md).
+**On a Mac?** The Claude widget also comes as a native menu-bar app: see [macos/README.md](macos/README.md). The Codex and Antigravity widgets are Windows only.
 
 ## Install
 
 1. Download [**ai-usage-taskbar-widgets.zip**](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest/download/ai-usage-taskbar-widgets.zip) from the [latest release](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest), or `claude-usage-widget.zip` or `codex-usage-widget.zip` for just one widget. Unzip it anywhere. To check the download, compare `Get-FileHash` with the release's `SHA256SUMS.txt`.
-2. In the unzipped folder, double-click **Install Claude widget.cmd** and/or **Install Codex widget.cmd**. If Windows asks whether to run a file from the internet, choose **Run** (or **More info → Run anyway**).
+2. In the unzipped folder, double-click **Install Claude widget.cmd**, **Install Codex widget.cmd** and/or **Install Antigravity widget.cmd**. If Windows asks whether to run a file from the internet, choose **Run** (or **More info → Run anyway**).
 
 Prefer a terminal? Open the unzipped folder in one: on Windows 11, right-click an empty spot and choose **Open in Terminal**; on Windows 10, hold **Shift**, right-click an empty spot and choose **Open PowerShell window here**. Then run the installer for each widget you want:
 
@@ -62,7 +64,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\claude-usage-widget\instal
 powershell -NoProfile -ExecutionPolicy Bypass -File .\codex-usage-widget\install.ps1
 ```
 
-Each installer copies the widget to `%LOCALAPPDATA%\ClaudeUsageWidget` (or `CodexUsageWidget`). It adds a Startup shortcut, a Start menu entry and a per-user watchdog task (every 5 minutes it restarts the widget if it stopped or hung, but never after *Exit* or with *Start with Windows* off), starts the widget, and checks that live data arrives. Running it again updates the widget in place and keeps your settings. `-ExecutionPolicy Bypass` applies to that one command only; it changes no system setting.
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\antigravity-usage-widget\install.ps1
+```
+
+Each installer copies the widget to `%LOCALAPPDATA%\ClaudeUsageWidget` (or `CodexUsageWidget`, `AntigravityUsageWidget`). It adds a Startup shortcut, a Start menu entry and a per-user watchdog task (every 5 minutes it restarts the widget if it stopped or hung, but never after *Exit* or with *Start with Windows* off), starts the widget, and checks that live data arrives. Running it again updates the widget in place and keeps your settings. `-ExecutionPolicy Bypass` applies to that one command only; it changes no system setting.
 
 ## Uninstall
 
@@ -72,20 +78,20 @@ Right-click a pill → **Uninstall…**, or run:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\claude-usage-widget\uninstall.ps1
 ```
 
-This stops that widget and removes its watchdog task, folder, Startup shortcut and Start menu entry. Add `-KeepData` to keep settings and history. Your Claude or Codex sign-in is never touched.
+This stops that widget and removes its watchdog task, folder, Startup shortcut and Start menu entry. Add `-KeepData` to keep settings and history. Your Claude, Codex or Antigravity sign-in is never touched.
 
 ## How it works and what it reads
 
 Each widget runs a small collector script in a hidden PowerShell process every 1–2 minutes (adjustable).
 
-| | Claude | Codex |
-|---|---|---|
-| Sign-in it reads | `%USERPROFILE%\.claude\.credentials.json` (or `CLAUDE_CONFIG_DIR`) | `%USERPROFILE%\.codex\auth.json` (or `CODEX_HOME`) |
-| Usage it asks for | `api.anthropic.com/api/oauth/usage` | `chatgpt.com/backend-api/wham/usage` |
-| Backup source | Claude Code's own `/usage` command (`claude -p "/usage"`), when the service rate-limits, errors or is unreachable | the Codex CLI's `app-server`, when the sign-in is rejected |
-| Expired sign-in | Claude Code renews it (`claude -p "/usage"`) | right-click → *Sign in again* (`codex login`) |
+| | Claude | Codex | Antigravity |
+|---|---|---|---|
+| Sign-in it reads | `%USERPROFILE%\.claude\.credentials.json` (or `CLAUDE_CONFIG_DIR`) | `%USERPROFILE%\.codex\auth.json` (or `CODEX_HOME`) | none: the running app's `%USERPROFILE%\.gemini\antigravity\daemon\hub_<port>.json` (its local port and per-run token) |
+| Usage it asks for | `api.anthropic.com/api/oauth/usage` | `chatgpt.com/backend-api/wham/usage` | Antigravity's language server on `127.0.0.1` (`RetrieveUserQuotaSummary`) |
+| Backup source | Claude Code's own `/usage` command (`claude -p "/usage"`), when the service rate-limits, errors or is unreachable | the Codex CLI's `app-server`, when the sign-in is rejected | none: the last reading, marked as not up to date, with a note to open Antigravity |
+| Expired sign-in | Claude Code renews it (`claude -p "/usage"`) | right-click → *Sign in again* (`codex login`) | sign in inside Antigravity |
 
-- Tokens are read only inside the collector, sent only to the vendor's own usage endpoint, and never logged, cached or passed as command-line arguments.
+- Tokens are read only inside the collector, sent only to the vendor's own usage endpoint, and never logged, cached or passed as command-line arguments. The Antigravity collector sends its local token only to `127.0.0.1` and never leaves the PC.
 - The widget never signs in, refreshes or edits your credential files itself; renewal and sign-in go through the official CLIs.
 - Rate limits and server errors back off automatically (from 2 minutes up to 30); the last reading is shown, marked as not up to date.
 - Local files live in `%LOCALAPPDATA%\<widget>`:
@@ -95,7 +101,7 @@ Each widget runs a small collector script in a hidden PowerShell process every 1
   - `widget.log`
   - a 60-second usage cache
 
-The usage endpoints are the ones the Claude and Codex apps use themselves. They aren't public APIs and may change; when one does, the widget says so instead of showing wrong numbers.
+The usage endpoints are the ones the Claude, Codex and Antigravity apps use themselves. They aren't public APIs and may change; when one does, the widget says so instead of showing wrong numbers.
 
 The pace forecast compares your use with even use over the week. It takes your speed over the last 2–6 hours (or the week's average), works out when the allowance runs out at that speed, and calls it *Too fast* when that is before the reset. It is an estimate from readings on your PC, not an official forecast.
 
@@ -109,15 +115,15 @@ The pace forecast compares your use with even use over the week. It takes your s
 
 ## Develop
 
-The two widgets share one codebase. `claude-usage-widget\` is the source. In `codex-usage-widget\`, everything except the collector (`codex-usage.ps1`) and the product block at the top of the widget is generated:
+The three widgets share one codebase. `claude-usage-widget\` is the source. In `codex-usage-widget\` and `antigravity-usage-widget\`, everything except the collector (`codex-usage.ps1`, `antigravity-usage.ps1`) and the product block at the top of the widget is generated:
 
 | Command | What it does |
 |---|---|
-| `powershell -NoProfile -ExecutionPolicy Bypass -File tools\sync.ps1` | Regenerates the Codex widget, installer, uninstaller and watchdog from the Claude ones; checks that every script parses and has a UTF-8 BOM |
+| `powershell -NoProfile -ExecutionPolicy Bypass -File tools\sync.ps1` | Regenerates the Codex and Antigravity widgets, installers, uninstallers and watchdogs from the Claude ones; checks that every script parses and has a UTF-8 BOM |
 | `powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1` | Builds the release zips and checksums in `dist\`; checks that the version matches `CHANGELOG.md` |
 | `powershell -NoProfile -ExecutionPolicy Bypass -File tools\verify.ps1` | What CI runs: `tests\run-tests.ps1`, then `tools\lint.ps1` (lint is skipped with a warning when PSScriptAnalyzer is missing locally) |
-| `powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1` | The tests alone: `sync.ps1 -Check`, the version and packaging check, then both test suites (simulated: fake sign-ins and CLIs, no network) |
-| `powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1 -Suite Claude` | The same shared checks, then only the Claude suite (`-Suite Codex` for the Codex one) |
+| `powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1` | The tests alone: `sync.ps1 -Check`, the version and packaging check, then the 3 test suites (simulated: fake sign-ins, CLIs and a fake local Antigravity server, no network) |
+| `powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-tests.ps1 -Suite Claude` | The same shared checks, then only the Claude suite (`-Suite Codex` or `-Suite Antigravity` for the others) |
 | `powershell -NoProfile -ExecutionPolicy Bypass -File tools\lint.ps1` | PSScriptAnalyzer with `PSScriptAnalyzerSettings.psd1` (CI runs it too); needs `Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser` once |
 
 Edit the Claude files, run `tools\sync.ps1`, then `tools\verify.ps1`. Exit an installed widget (right-click › Exit) before running tests from a checkout. Scripts must stay compatible with Windows PowerShell 5.1 and saved as UTF-8 with BOM.
@@ -136,10 +142,10 @@ The macOS app lives in `macos/` (Swift, built with the Command Line Tools, no Xc
 2. Run `tools\sync.ps1` and `tests\run-tests.ps1`, then merge.
 3. Tag the merge commit `v<version>` and push the tag.
 
-The **Release** workflow tests again, builds the three zips and `SHA256SUMS.txt` (`tools\package.ps1`), and publishes the release with that version's changelog section as its notes.
+The **Release** workflow tests again, builds the zips and `SHA256SUMS.txt` (`tools\package.ps1`), and publishes the release with that version's changelog section as its notes.
 
 ## License
 
 Free to download and use, personally or inside your organization, under the [Solarity AI Use License](LICENSE). Selling, redistributing or publishing modified versions needs written permission from Solarity AI LLC.
 
-Not affiliated with Anthropic or OpenAI; Claude and Codex are their respective trademarks.
+Not affiliated with Anthropic, OpenAI or Google; Claude, Codex, Antigravity and Gemini are their respective trademarks.

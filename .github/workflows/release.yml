@@ -34,5 +34,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = $env:GITHUB_REF_NAME
-          gh release create $tag dist\ai-usage-taskbar-widgets.zip dist\claude-usage-widget.zip dist\codex-usage-widget.zip dist\SHA256SUMS.txt --title "$tag" --notes-file dist\release-notes.md --verify-tag --latest
+          gh release create $tag dist\ai-usage-taskbar-widgets.zip dist\claude-usage-widget.zip dist\codex-usage-widget.zip dist\antigravity-usage-widget.zip dist\SHA256SUMS.txt --title "$tag" --notes-file dist\release-notes.md --verify-tag --latest
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
