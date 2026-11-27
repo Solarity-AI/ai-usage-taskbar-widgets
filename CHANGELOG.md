@@ -4,7 +4,7 @@ Each release is listed here, newest first. The version is `$script:Version` in `
 
 ## 1.7.0 (2026-11-26)
 
-**Added (Windows):** an Antigravity widget, a third pill next to the Codex pill (or the Claude pill). It shows Antigravity's 2 separate allowances: the ring, the weekly bar and the 5-hour bar show the Gemini pool, and the card has 2 more rows for the Claude and GPT pool (*Claude and GPT · week*, *Claude and GPT · 5 hours*). It reads Antigravity's own local language server on `127.0.0.1`, so Antigravity must be running; while it is closed the pill keeps the last reading and says *open Antigravity*. The local token is read per poll and never logged or cached. Install it with **Install Antigravity widget.cmd**. There is no macOS version.
+**Added (Windows):** an Antigravity widget, a third pill next to the Codex pill (or the Claude pill). It shows Antigravity's 2 separate allowances: the ring, the weekly bar and the 5-hour bar show the Gemini pool, and the card has 2 more rows for the Claude and GPT pool (*Claude and GPT · week*, *Claude and GPT · 5 hours*). It reads Antigravity's own local language server on `127.0.0.1`, so Antigravity must be running; while it is closed the card keeps the last reading, marked as not up to date, and says to open Antigravity. The local token is read per poll and never logged or cached. Install it with **Install Antigravity widget.cmd**. There is no macOS version.
 
 ## 1.6.0 (2026-11-25)
 

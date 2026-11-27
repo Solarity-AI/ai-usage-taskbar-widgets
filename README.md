@@ -43,7 +43,7 @@ See how much of your weekly **Claude**, **Codex** and **Antigravity** allowance 
 - Windows 10 or 11, with the built-in **Windows PowerShell 5.1**. Nothing to install, no admin rights.
 - **Claude widget:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) signed in on this PC with a Claude subscription (Pro, Max, Team or Enterprise).
 - **Codex widget:** the Codex app or CLI signed in on this PC with a ChatGPT plan.
-- **Antigravity widget:** [Antigravity](https://antigravity.google/) signed in and **running** on this PC. The widget asks Antigravity's own local language server, so while Antigravity is closed it shows the last reading and *open Antigravity*.
+- **Antigravity widget:** [Antigravity](https://antigravity.google/) signed in and **running** on this PC. The widget asks Antigravity's own local language server, so while Antigravity is closed the card keeps the last reading, marked as not up to date, and says to open Antigravity (with no reading yet the pill says *open Antigravity*).
 
 Install any of the widgets; they are independent.
 
@@ -51,7 +51,7 @@ Install any of the widgets; they are independent.
 
 ## Install
 
-1. Download [**ai-usage-taskbar-widgets.zip**](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest/download/ai-usage-taskbar-widgets.zip) from the [latest release](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest), or `claude-usage-widget.zip`, `codex-usage-widget.zip` or `antigravity-usage-widget.zip` for just one widget. Unzip it anywhere. To check the download, compare `Get-FileHash` with the release's `SHA256SUMS.txt`.
+1. Download [**ai-usage-taskbar-widgets.zip**](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest/download/ai-usage-taskbar-widgets.zip) from the [latest release](https://github.com/Solarity-AI/ai-usage-taskbar-widgets/releases/latest), or `claude-usage-widget.zip` or `codex-usage-widget.zip` for just one widget. Unzip it anywhere. To check the download, compare `Get-FileHash` with the release's `SHA256SUMS.txt`.
 2. In the unzipped folder, double-click **Install Claude widget.cmd**, **Install Codex widget.cmd** and/or **Install Antigravity widget.cmd**. If Windows asks whether to run a file from the internet, choose **Run** (or **More info → Run anyway**).
 
 Prefer a terminal? Open the unzipped folder in one: on Windows 11, right-click an empty spot and choose **Open in Terminal**; on Windows 10, hold **Shift**, right-click an empty spot and choose **Open PowerShell window here**. Then run the installer for each widget you want:
@@ -88,7 +88,7 @@ Each widget runs a small collector script in a hidden PowerShell process every 1
 |---|---|---|---|
 | Sign-in it reads | `%USERPROFILE%\.claude\.credentials.json` (or `CLAUDE_CONFIG_DIR`) | `%USERPROFILE%\.codex\auth.json` (or `CODEX_HOME`) | none: the running app's `%USERPROFILE%\.gemini\antigravity\daemon\hub_<port>.json` (its local port and per-run token) |
 | Usage it asks for | `api.anthropic.com/api/oauth/usage` | `chatgpt.com/backend-api/wham/usage` | Antigravity's language server on `127.0.0.1` (`RetrieveUserQuotaSummary`) |
-| Backup source | Claude Code's own `/usage` command (`claude -p "/usage"`), when the service rate-limits, errors or is unreachable | the Codex CLI's `app-server`, when the sign-in is rejected | none: the last reading, marked *open Antigravity* |
+| Backup source | Claude Code's own `/usage` command (`claude -p "/usage"`), when the service rate-limits, errors or is unreachable | the Codex CLI's `app-server`, when the sign-in is rejected | none: the last reading, marked as not up to date, with a note to open Antigravity |
 | Expired sign-in | Claude Code renews it (`claude -p "/usage"`) | right-click → *Sign in again* (`codex login`) | sign in inside Antigravity |
 
 - Tokens are read only inside the collector, sent only to the vendor's own usage endpoint, and never logged, cached or passed as command-line arguments. The Antigravity collector sends its local token only to `127.0.0.1` and never leaves the PC.
